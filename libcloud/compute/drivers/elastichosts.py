@@ -203,6 +203,21 @@ class ElasticHostsUS2NodeDriver(ElasticHostsBaseNodeDriver):
     connectionCls = ElasticHostsUS2Connection
 
 
+class ElasticHostsUS3Connection(ElasticStackBaseConnection):
+    """
+    Connection class for the ElasticHosts driver for
+    the San Jose (Silicon Valley) end-point
+    """
+    host = API_ENDPOINTS['us-3']['host']
+
+
+class ElasticHostsUS3NodeDriver(ElasticHostsBaseNodeDriver):
+    """
+    ElasticHosts node driver for the San Jose (Silicon Valley) end-point
+    """
+    connectionCls = ElasticHostsUS3Connection
+
+
 class ElasticHostsCA1Connection(ElasticStackBaseConnection):
     """
     Connection class for the ElasticHosts driver for

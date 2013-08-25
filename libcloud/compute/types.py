@@ -43,6 +43,12 @@ class Provider(object):
     @cvar EC2_US_EAST: Amazon AWS US N. Virgina
     @cvar EC2_US_WEST: Amazon AWS US N. California
     @cvar EC2_EU_WEST: Amazon AWS EU Ireland
+    @cvar ELASTICHOSTS_UK1: Elastichosts London Peer 1
+    @cvar ELASTICHOSTS_UK2: Elastichosts London BlueSquare
+    @cvar ELASTICHOSTS_US1: Elastichosts San Antonio Peer 1
+    @cvar ELASTICHOSTS_US2: Elastichosts Los Angeles Peer 1
+    @cvar ELASTICHOSTS_US3: Elastichosts San Jose (Silicon Valley)
+    @cvar ELASTICHOSTS_CA1: Elastichosts Toronto Peer 1
     @cvar RACKSPACE: Rackspace next-gen OpenStack based Cloud Servers
     @cvar RACKSPACE_FIRST_GEN: Rackspace First Gen Cloud Servers
     @cvar SLICEHOST: Slicehost.com
@@ -93,6 +99,9 @@ class Provider(object):
     ELASTICHOSTS_UK1 = 'elastichosts_uk1'
     ELASTICHOSTS_UK2 = 'elastichosts_uk2'
     ELASTICHOSTS_US1 = 'elastichosts_us1'
+    ELASTICHOSTS_US2 = 'elastichosts_us2'
+    ELASTICHOSTS_US3 = 'elastichosts_us3'
+    ELASTICHOSTS_CA1 = 'elastichosts_ca1'
     BRIGHTBOX = 'brightbox'
     CLOUDSIGMA = 'cloudsigma'
     NIMBUS = 'nimbus'
@@ -107,8 +116,6 @@ class Provider(object):
     CLOUDSTACK = 'cloudstack'
     CLOUDSIGMA_US = 'cloudsigma_us'
     LIBVIRT = 'libvirt'
-    ELASTICHOSTS_US2 = 'elastichosts_us2'
-    ELASTICHOSTS_CA1 = 'elastichosts_ca1'
     JOYENT = 'joyent'
     VCL = 'vcl'
     KTUCLOUD = 'ktucloud'

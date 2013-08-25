@@ -55,6 +55,8 @@ DRIVERS = {
         ('libcloud.compute.drivers.elastichosts', 'ElasticHostsUS1NodeDriver'),
     Provider.ELASTICHOSTS_US2:
         ('libcloud.compute.drivers.elastichosts', 'ElasticHostsUS2NodeDriver'),
+    Provider.ELASTICHOSTS_US3:
+        ('libcloud.compute.drivers.elastichosts', 'ElasticHostsUS3NodeDriver'),
     Provider.ELASTICHOSTS_CA1:
         ('libcloud.compute.drivers.elastichosts', 'ElasticHostsCA1NodeDriver'),
     Provider.SKALICLOUD:
