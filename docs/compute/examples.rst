@@ -1,3 +1,5 @@
+:orphan:
+
 Compute Examples
 ================
 
@@ -93,6 +95,17 @@ supported providers and provider constants, see
 .. literalinclude:: /examples/compute/create_ec2_node_custom_ami.py
    :language: python
 
+Create EC2 node using an IAM Profile
+------------------------------------
+
+.. note::
+
+    This example assumes the IAM profile already exists. If the key pair
+    doesn't exist yet, you must create it manually.
+
+.. literalinclude:: /examples/compute/create_ec2_node_iam.py
+   :language: python
+
 Create a node on a CloudStack provider using a provided key pair and security groups
 ------------------------------------------------------------------------------------
 
@@ -101,16 +114,13 @@ Create a node on a CloudStack provider using a provided key pair and security gr
     This example assumes the provided key pair already exists. If the key pair
     doesn't exist yet, you can create it using the provider's own UI, or
     :func:`ex_create_keypair` driver method.
+    This functionality is only available in Libcloud 0.14.0 and above.
 
 This example demonstrates how to create a node using an existing key pair.
 Created node also gets added to the provided security groups.
 
-.. literalinclude:: /examples/compute/create_cloudstack_node_keypair_secgroup.py
+.. literalinclude:: /examples/compute/cloudstack/create_cloudstack_node_keypair_secgroup.py
    :language: python
-
-As noted in the example, you use `extra_args` argument to provide a dictionary that
-contains the keypair and list of securitygroups. Note that the list of securitygroups
-is passed as a string not as a python list.
 
 Create flaoting IP and attach it to a node using a local OpenStack provider
 ---------------------------------------------------------------------------
@@ -118,4 +128,16 @@ Create flaoting IP and attach it to a node using a local OpenStack provider
 This example demonstrates how to use OpenStack's floating IPs.
 
 .. literalinclude:: /examples/compute/openstack_floating_ips.py
+   :language: python
+
+Create an IBM SCE Windows node using generic provider
+-----------------------------------------------------
+
+.. note::
+
+    ex_configurationData is the key component of this example.
+
+This example shows how to create a Windows node using IBM SmartCloud Enterpiese.
+
+.. literalinclude:: /examples/compute/create_ibm_sce_windows_node.py
    :language: python

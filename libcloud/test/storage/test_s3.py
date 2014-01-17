@@ -23,7 +23,7 @@ from libcloud.utils.py3 import urlparse
 from libcloud.utils.py3 import parse_qs
 
 from libcloud.common.types import InvalidCredsError
-from libcloud.common.types import LibcloudError
+from libcloud.common.types import LibcloudError, MalformedResponseError
 from libcloud.storage.base import Container, Object
 from libcloud.storage.types import ContainerDoesNotExistError
 from libcloud.storage.types import ContainerIsNotEmptyError
@@ -34,11 +34,12 @@ from libcloud.storage.drivers.s3 import S3StorageDriver, S3USWestStorageDriver
 from libcloud.storage.drivers.s3 import S3EUWestStorageDriver
 from libcloud.storage.drivers.s3 import S3APSEStorageDriver
 from libcloud.storage.drivers.s3 import S3APNEStorageDriver
+from libcloud.storage.drivers.s3 import CHUNK_SIZE
 from libcloud.storage.drivers.dummy import DummyIterator
 
-from libcloud.test import StorageMockHttp, MockRawResponse # pylint: disable-msg=E0611
-from libcloud.test import MockHttpTestCase # pylint: disable-msg=E0611
-from libcloud.test.file_fixtures import StorageFileFixtures # pylint: disable-msg=E0611
+from libcloud.test import StorageMockHttp, MockRawResponse  # pylint: disable-msg=E0611
+from libcloud.test import MockHttpTestCase  # pylint: disable-msg=E0611
+from libcloud.test.file_fixtures import StorageFileFixtures  # pylint: disable-msg=E0611
 from libcloud.test.secrets import STORAGE_S3_PARAMS
 
 
@@ -60,6 +61,14 @@ class S3MockHttp(StorageMockHttp, MockHttpTestCase):
                 httplib.responses[httplib.OK])
 
     def _list_containers_EMPTY(self, method, url, body, headers):
+        body = self.fixtures.load('list_containers_empty.xml')
+        return (httplib.OK,
+                body,
+                self.base_headers,
+                httplib.responses[httplib.OK])
+
+    def _list_containers_TOKEN(self, method, url, body, headers):
+        self.assertEqual(headers['x-amz-security-token'], 'asdf')
         body = self.fixtures.load('list_containers_empty.xml')
         return (httplib.OK,
                 body,
@@ -100,15 +109,22 @@ class S3MockHttp(StorageMockHttp, MockHttpTestCase):
                 self.base_headers,
                 httplib.responses[httplib.OK])
 
-    def _test2_test_list_containers(self, method, url, body, headers):
+    def _test2_get_object(self, method, url, body, headers):
+        body = self.fixtures.load('list_container_objects.xml')
+        return (httplib.OK,
+                body,
+                self.base_headers,
+                httplib.responses[httplib.OK])
+
+    def _test2_test_get_object(self, method, url, body, headers):
         # test_get_object
         body = self.fixtures.load('list_containers.xml')
         headers = {'content-type': 'application/zip',
-                    'etag': '"e31208wqsdoj329jd"',
-                    'x-amz-meta-rabbits': 'monkeys',
-                    'content-length': 12345,
-                    'last-modified': 'Thu, 13 Sep 2012 07:13:22 GMT'
-                    }
+                   'etag': '"e31208wqsdoj329jd"',
+                   'x-amz-meta-rabbits': 'monkeys',
+                   'content-length': 12345,
+                   'last-modified': 'Thu, 13 Sep 2012 07:13:22 GMT'
+                   }
 
         return (httplib.OK,
                 body,
@@ -155,6 +171,25 @@ class S3MockHttp(StorageMockHttp, MockHttpTestCase):
                 body,
                 headers,
                 httplib.responses[httplib.OK])
+
+    def _test1_get_container(self, method, url, body, headers):
+        body = self.fixtures.load('list_container_objects.xml')
+        return (httplib.OK,
+                body,
+                self.base_headers,
+                httplib.responses[httplib.OK])
+
+    def _container1_get_container(self, method, url, body, headers):
+        return (httplib.NOT_FOUND,
+                '',
+                self.base_headers,
+                httplib.responses[httplib.NOT_FOUND])
+
+    def _test_inexistent_get_object(self, method, url, body, headers):
+        return (httplib.NOT_FOUND,
+                '',
+                self.base_headers,
+                httplib.responses[httplib.NOT_FOUND])
 
     def _foo_bar_container(self, method, url, body, headers):
         # test_delete_container
@@ -243,7 +278,8 @@ class S3MockHttp(StorageMockHttp, MockHttpTestCase):
                 self.assertEqual(part_no, str(count))
                 self.assertEqual(etag, headers['etag'])
 
-            self.assertEqual(count, 3)
+            # Make sure that manifest contains at least one part
+            self.assertTrue(count >= 1)
 
             body = self.fixtures.load('complete_multipart.xml')
             return (httplib.OK,
@@ -336,14 +372,6 @@ class S3MockRawResponse(MockRawResponse):
                 headers,
                 httplib.responses[httplib.OK])
 
-    def _foo_bar_container_foo_bar_object(self, method, url, body, headers):
-        # test_upload_object_invalid_file_size
-        body = self._generate_random_data(1000)
-        return (httplib.OK,
-                body,
-                headers,
-                httplib.responses[httplib.OK])
-
     def _foo_bar_container_foo_bar_object_INVALID_SIZE(self, method, url,
                                                        body, headers):
         # test_upload_object_invalid_file_size
@@ -393,9 +421,9 @@ class S3Tests(unittest.TestCase):
 
     def setUp(self):
         self.driver_type.connectionCls.conn_classes = (None,
-                                                     self.mock_response_klass)
+                                                       self.mock_response_klass)
         self.driver_type.connectionCls.rawResponseCls = \
-                self.mock_raw_response_klass
+            self.mock_raw_response_klass
         self.mock_response_klass.type = None
         self.mock_raw_response_klass.type = None
         self.driver = self.create_driver()
@@ -420,6 +448,11 @@ class S3Tests(unittest.TestCase):
             self.assertEqual(True, isinstance(e, InvalidCredsError))
         else:
             self.fail('Exception was not thrown')
+
+    def test_token(self):
+        self.mock_response_klass.type = 'list_containers_TOKEN'
+        self.driver = self.driver_type(*self.driver_args, token='asdf')
+        self.driver.list_containers()
 
     def test_bucket_is_located_in_different_region(self):
         self.mock_response_klass.type = 'DIFFERENT_REGION'
@@ -460,7 +493,8 @@ class S3Tests(unittest.TestCase):
         self.assertEqual(obj.hash, '4397da7a7649e8085de9916c240e8166')
         self.assertEqual(obj.size, 1234567)
         self.assertEqual(obj.container.name, 'test_container')
-        self.assertEqual(obj.extra['last_modified'], '2011-04-09T19:05:18.000Z')
+        self.assertEqual(
+            obj.extra['last_modified'], '2011-04-09T19:05:18.000Z')
         self.assertTrue('owner' in obj.meta_data)
 
     def test_list_container_objects_iterator_has_more(self):
@@ -482,7 +516,7 @@ class S3Tests(unittest.TestCase):
         container = Container(name='test_container', extra={},
                               driver=self.driver)
         objects = self.driver.list_container_objects(container=container,
-            ex_prefix='test_prefix')
+                                                     ex_prefix='test_prefix')
         self.assertEqual(len(objects), 1)
 
         obj = [o for o in objects if o.name == '1.zip'][0]
@@ -492,7 +526,7 @@ class S3Tests(unittest.TestCase):
         self.assertTrue('owner' in obj.meta_data)
 
     def test_get_container_doesnt_exist(self):
-        self.mock_response_klass.type = 'list_containers'
+        self.mock_response_klass.type = 'get_container'
         try:
             self.driver.get_container(container_name='container1')
         except ContainerDoesNotExistError:
@@ -501,14 +535,14 @@ class S3Tests(unittest.TestCase):
             self.fail('Exception was not thrown')
 
     def test_get_container_success(self):
-        self.mock_response_klass.type = 'list_containers'
+        self.mock_response_klass.type = 'get_container'
         container = self.driver.get_container(container_name='test1')
         self.assertTrue(container.name, 'test1')
 
     def test_get_object_container_doesnt_exist(self):
         # This method makes two requests which makes mocking the response a bit
         # trickier
-        self.mock_response_klass.type = 'list_containers'
+        self.mock_response_klass.type = 'get_object'
         try:
             self.driver.get_object(container_name='test-inexistent',
                                    object_name='test')
@@ -520,7 +554,7 @@ class S3Tests(unittest.TestCase):
     def test_get_object_success(self):
         # This method makes two requests which makes mocking the response a bit
         # trickier
-        self.mock_response_klass.type = 'list_containers'
+        self.mock_response_klass.type = 'get_object'
         obj = self.driver.get_object(container_name='test2',
                                      object_name='test')
 
@@ -746,17 +780,59 @@ class S3Tests(unittest.TestCase):
         object_name = 'foo_test_upload'
         extra = {'meta_data': {'some-value': 'foobar'}}
         obj = self.driver.upload_object(file_path=file_path,
-                                      container=container,
-                                      object_name=object_name,
-                                      extra=extra,
-                                      verify_hash=True)
+                                        container=container,
+                                        object_name=object_name,
+                                        extra=extra,
+                                        verify_hash=True)
         self.assertEqual(obj.name, 'foo_test_upload')
         self.assertEqual(obj.size, 1000)
         self.assertTrue('some-value' in obj.meta_data)
         self.driver_type._upload_file = old_func
 
-    def test_upload_object_via_stream(self):
+    def test_upload_object_with_acl(self):
+        def upload_file(self, response, file_path, chunked=False,
+                        calculate_hash=True):
+            return True, '0cc175b9c0f1b6a831c399e269772661', 1000
 
+        old_func = self.driver_type._upload_file
+        self.driver_type._upload_file = upload_file
+        file_path = os.path.abspath(__file__)
+        container = Container(name='foo_bar_container', extra={},
+                              driver=self.driver)
+        object_name = 'foo_test_upload'
+        extra = {'acl': 'public-read'}
+        obj = self.driver.upload_object(file_path=file_path,
+                                        container=container,
+                                        object_name=object_name,
+                                        extra=extra,
+                                        verify_hash=True)
+        self.assertEqual(obj.name, 'foo_test_upload')
+        self.assertEqual(obj.size, 1000)
+        self.assertEqual(obj.extra['acl'], 'public-read')
+        self.driver_type._upload_file = old_func
+
+    def test_upload_empty_object_via_stream(self):
+        if self.driver.supports_s3_multipart_upload:
+            self.mock_raw_response_klass.type = 'MULTIPART'
+            self.mock_response_klass.type = 'MULTIPART'
+        else:
+            self.mock_raw_response_klass.type = None
+            self.mock_response_klass.type = None
+
+        container = Container(name='foo_bar_container', extra={},
+                              driver=self.driver)
+        object_name = 'foo_test_stream_data'
+        iterator = DummyIterator(data=[''])
+        extra = {'content_type': 'text/plain'}
+        obj = self.driver.upload_object_via_stream(container=container,
+                                                   object_name=object_name,
+                                                   iterator=iterator,
+                                                   extra=extra)
+
+        self.assertEqual(obj.name, object_name)
+        self.assertEqual(obj.size, 0)
+
+    def test_upload_small_object_via_stream(self):
         if self.driver.supports_s3_multipart_upload:
             self.mock_raw_response_klass.type = 'MULTIPART'
             self.mock_response_klass.type = 'MULTIPART'
@@ -777,6 +853,28 @@ class S3Tests(unittest.TestCase):
         self.assertEqual(obj.name, object_name)
         self.assertEqual(obj.size, 3)
 
+    def test_upload_big_object_via_stream(self):
+        if self.driver.supports_s3_multipart_upload:
+            self.mock_raw_response_klass.type = 'MULTIPART'
+            self.mock_response_klass.type = 'MULTIPART'
+        else:
+            self.mock_raw_response_klass.type = None
+            self.mock_response_klass.type = None
+
+        container = Container(name='foo_bar_container', extra={},
+                              driver=self.driver)
+        object_name = 'foo_test_stream_data'
+        iterator = DummyIterator(
+            data=['2' * CHUNK_SIZE, '3' * CHUNK_SIZE, '5'])
+        extra = {'content_type': 'text/plain'}
+        obj = self.driver.upload_object_via_stream(container=container,
+                                                   object_name=object_name,
+                                                   iterator=iterator,
+                                                   extra=extra)
+
+        self.assertEqual(obj.name, object_name)
+        self.assertEqual(obj.size, CHUNK_SIZE * 2 + 1)
+
     def test_upload_object_via_stream_abort(self):
         if not self.driver.supports_s3_multipart_upload:
             return
@@ -796,10 +894,10 @@ class S3Tests(unittest.TestCase):
         extra = {'content_type': 'text/plain'}
 
         try:
-            obj = self.driver.upload_object_via_stream(container=container,
-                                                       object_name=object_name,
-                                                       iterator=iterator,
-                                                       extra=extra)
+            self.driver.upload_object_via_stream(container=container,
+                                                 object_name=object_name,
+                                                 iterator=iterator,
+                                                 extra=extra)
         except Exception:
             pass
 

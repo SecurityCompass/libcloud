@@ -52,18 +52,24 @@ BASE_API_METHODS = {
                               'attach_volume', 'detach_volume',
                               'list_volume_snapshots',
                               'create_volume_snapshot'],
+    'compute_key_pair_management': ['list_key_pairs', 'get_key_pair',
+                                    'create_key_pair',
+                                    'import_key_pair_from_string',
+                                    'import_key_pair_from_file',
+                                    'delete_key_pair'],
     'loadbalancer': ['create_balancer', 'list_balancers',
                      'balancer_list_members', 'balancer_attach_member',
                      'balancer_detach_member', 'balancer_attach_compute_node'],
     'storage_main': ['list_containers', 'list_container_objects',
-                     'create_container',
-                     'delete_container', 'upload_object',
+                     'iterate_containers', 'iterate_container_objects',
+                     'create_container', 'delete_container', 'upload_object',
                      'upload_object_via_stream', 'download_object',
                      'download_object_as_stream', 'delete_object'],
     'storage_cdn': ['enable_container_cdn', 'enable_object_cdn',
                     'get_container_cdn_url', 'get_object_cdn_url'],
-    'dns': ['list_zones', 'list_records', 'create_zone', 'update_zone',
-            'create_record', 'update_record', 'delete_zone', 'delete_record']
+    'dns': ['list_zones', 'list_records', 'iterate_zones', 'iterate_records',
+            'create_zone', 'update_zone', 'create_record', 'update_record',
+            'delete_zone', 'delete_record']
 }
 
 FRIENDLY_METHODS_NAMES = {
@@ -83,7 +89,15 @@ FRIENDLY_METHODS_NAMES = {
         'attach_volume': 'attach volume',
         'detach_volume': 'detach volume',
         'list_volume_snapshots': 'list snapshots',
-        'create_volume_snapshot': 'create snapshop'
+        'create_volume_snapshot': 'create snapshot'
+    },
+    'compute_key_pair_management': {
+        'list_key_pairs': 'list key pairs',
+        'get_key_pair': 'get key pair',
+        'create_key_pair': 'create key pair',
+        'import_key_pair_from_string': 'import public key from string',
+        'import_key_pair_from_file': 'import public key from file',
+        'delete_key_pair': 'delete key pair'
     },
     'loadbalancer': {
         'create_balancer': 'create balancer',
@@ -122,6 +136,14 @@ FRIENDLY_METHODS_NAMES = {
     },
 }
 
+IGNORED_PROVIDERS = [
+    'dummy',
+    'local',
+
+    # Deprecated constants
+    'cloudfiles_swift'
+]
+
 
 def get_provider_api_names(Provider):
     names = [key for key, value in Provider.__dict__.items() if
@@ -132,7 +154,8 @@ def get_provider_api_names(Provider):
 def generate_providers_table(api):
     result = {}
 
-    if api in ['compute_main', 'compute_block_storage']:
+    if api in ['compute_main', 'compute_block_storage',
+               'compute_key_pair_management']:
         driver = NodeDriver
         drivers = COMPUTE_DRIVERS
         provider = ComputeProvider
@@ -165,6 +188,9 @@ def generate_providers_table(api):
             cls = get_driver_method(enum)
         except:
             # Deprecated providers throw an exception
+            continue
+
+        if name.lower() in IGNORED_PROVIDERS:
             continue
 
         driver_methods = dict(inspect.getmembers(cls,
@@ -211,13 +237,37 @@ def generate_supported_methods_table(api, provider_matrix):
     base_api_methods = BASE_API_METHODS[api]
     data = []
     header = [FRIENDLY_METHODS_NAMES[api][method_name] for method_name in
-              base_api_methods]
+              base_api_methods if not method_name.startswith('iterate_')]
     data.append(['Provider'] + header)
 
-    for provider, values in provider_matrix.items():
+    for provider, values in sorted(provider_matrix.items()):
         provider_name = '`%s`_' % (values['name'])
         row = [provider_name]
-        for _, supported in values['methods'].items():
+
+        # TODO: Make it nicer
+        # list_* methods don't need to be implemented if iterate_* methods are
+        # implemented
+        if api == 'storage_main':
+            if values['methods']['iterate_containers']:
+                values['methods']['list_containers'] = True
+
+            if values['methods']['iterate_container_objects']:
+                values['methods']['list_container_objects'] = True
+        elif api == 'dns':
+            # list_zones and list_records don't need to be implemented if
+            if values['methods']['iterate_zones']:
+                values['methods']['list_zones'] = True
+
+            if values['methods']['iterate_records']:
+                values['methods']['list_records'] = True
+
+        for method in base_api_methods:
+            # TODO: ghetto
+            if method.startswith('iterate_'):
+                continue
+
+            supported = values['methods'][method]
+
             if supported:
                 row.append('yes')
             else:
@@ -227,27 +277,39 @@ def generate_supported_methods_table(api, provider_matrix):
     result = generate_rst_table(data)
 
     result += '\n\n'
-    for provider, values in provider_matrix.items():
+    for provider, values in sorted(provider_matrix.items()):
         result += '.. _`%s`: %s\n' % (values['name'], values['website'])
     return result
 
 
-def generate_supported_providers_table(provider_matrix):
+def generate_supported_providers_table(api, provider_matrix):
     data = []
-    header = ['Provider', 'Provider constant', 'Module', 'Class Name']
+    header = ['Provider', 'Documentation', 'Provider constant', 'Module',
+              'Class Name']
 
     data.append(header)
-    for provider, values in provider_matrix.items():
+    for provider, values in sorted(provider_matrix.items()):
         name_str = '`%s`_' % (values['name'])
         module_str = ':mod:`%s`' % (values['module'])
         class_str = ':class:`%s`' % (values['class'])
-        row = [name_str, values['constant'], module_str, class_str]
+
+        params = {'api': api, 'provider': provider.lower()}
+        driver_docs_path = pjoin(this_dir,
+                                 '../docs/%(api)s/drivers/%(provider)s.rst'
+                                 % params)
+
+        if os.path.exists(driver_docs_path):
+            docs_link = ':doc:`Click </%(api)s/drivers/%(provider)s>`' % params
+        else:
+            docs_link = ''
+
+        row = [name_str, docs_link, values['constant'], module_str, class_str]
         data.append(row)
 
     result = generate_rst_table(data)
 
     result += '\n\n'
-    for provider, values in provider_matrix.items():
+    for provider, values in sorted(provider_matrix.items()):
         result += '.. _`%s`: %s\n' % (values['name'], values['website'])
     return result
 
@@ -256,8 +318,6 @@ def generate_tables():
     apis = BASE_API_METHODS.keys()
     for api in apis:
         result = generate_providers_table(api)
-        supported_providers = generate_supported_providers_table(result)
-        supported_methods = generate_supported_methods_table(api, result)
 
         docs_dir = api
 
@@ -265,6 +325,10 @@ def generate_tables():
             docs_dir = 'compute'
         elif api.startswith('storage'):
             docs_dir = 'storage'
+
+        supported_providers = generate_supported_providers_table(docs_dir,
+                                                                 result)
+        supported_methods = generate_supported_methods_table(api, result)
 
         current_path = os.path.dirname(__file__)
         target_dir = os.path.abspath(pjoin(current_path,
@@ -277,6 +341,8 @@ def generate_tables():
             file_name_2 = '_supported_methods_main.rst'
         elif api == 'compute_block_storage':
             file_name_2 = '_supported_methods_block_storage.rst'
+        elif api == 'compute_key_pair_management':
+            file_name_2 = '_supported_methods_key_pair_management.rst'
         elif api == 'storage_main':
             file_name_2 = '_supported_methods_main.rst'
         elif api == 'storage_cdn':

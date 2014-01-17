@@ -22,7 +22,6 @@ import sys
 from hashlib import sha1
 from xml.etree.ElementTree import Element, SubElement
 
-from libcloud.utils.py3 import PY3
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import urlquote
 from libcloud.utils.py3 import urlencode
@@ -33,7 +32,7 @@ from libcloud.utils.xml import fixxpath, findtext
 from libcloud.utils.files import read_in_chunks
 from libcloud.common.types import InvalidCredsError, LibcloudError
 from libcloud.common.base import ConnectionUserAndKey, RawResponse
-from libcloud.common.aws import AWSBaseResponse
+from libcloud.common.aws import AWSBaseResponse, AWSDriver, AWSTokenConnection
 
 from libcloud.storage.base import Object, Container, StorageDriver
 from libcloud.storage.types import ContainerIsNotEmptyError
@@ -65,7 +64,7 @@ RESPONSES_PER_REQUEST = 100
 
 
 class S3Response(AWSBaseResponse):
-
+    namespace = None
     valid_response_codes = [httplib.NOT_FOUND, httplib.CONFLICT,
                             httplib.BAD_REQUEST]
 
@@ -88,9 +87,9 @@ class S3RawResponse(S3Response, RawResponse):
     pass
 
 
-class S3Connection(ConnectionUserAndKey):
+class BaseS3Connection(ConnectionUserAndKey):
     """
-    Repersents a single connection to the EC2 Endpoint
+    Represents a single connection to the S3 Endpoint
     """
 
     host = 's3.amazonaws.com'
@@ -173,6 +172,14 @@ class S3Connection(ConnectionUserAndKey):
         return b64_hmac.decode('utf-8')
 
 
+class S3Connection(AWSTokenConnection, BaseS3Connection):
+    """
+    Represents a single connection to the S3 endpoint, with AWS-specific
+    features.
+    """
+    pass
+
+
 class S3MultipartUpload(object):
     """
     Class representing an amazon s3 multipart upload
@@ -182,20 +189,20 @@ class S3MultipartUpload(object):
         """
         Class representing an amazon s3 multipart upload
 
-        @param key: The object/key that was being uploaded
-        @type key: C{str}
+        :param key: The object/key that was being uploaded
+        :type key: ``str``
 
-        @param id: The upload id assigned by amazon
-        @type id: C{str}
+        :param id: The upload id assigned by amazon
+        :type id: ``str``
 
-        @param created_at: The date/time at which the upload was started
-        @type created_at: C{str}
+        :param created_at: The date/time at which the upload was started
+        :type created_at: ``str``
 
-        @param initiator: The AWS owner/IAM user who initiated this
-        @type initiator: C{str}
+        :param initiator: The AWS owner/IAM user who initiated this
+        :type initiator: ``str``
 
-        @param owner: The AWS owner/IAM who will own this object
-        @type owner: C{str}
+        :param owner: The AWS owner/IAM who will own this object
+        :type owner: ``str``
         """
         self.key = key
         self.id = id
@@ -207,10 +214,10 @@ class S3MultipartUpload(object):
         return ('<S3MultipartUpload: key=%s>' % (self.key))
 
 
-class S3StorageDriver(StorageDriver):
+class BaseS3StorageDriver(StorageDriver):
     name = 'Amazon S3 (standard)'
     website = 'http://aws.amazon.com/s3/'
-    connectionCls = S3Connection
+    connectionCls = BaseS3Connection
     hash_type = 'md5'
     supports_chunked_encoding = False
     supports_s3_multipart_upload = True
@@ -241,7 +248,7 @@ class S3StorageDriver(StorageDriver):
         :rtype: ``list`` of :class:`Object`
         """
         return list(self.iterate_container_objects(container,
-            ex_prefix=ex_prefix))
+                    ex_prefix=ex_prefix))
 
     def iterate_container_objects(self, container, ex_prefix=None):
         """
@@ -287,16 +294,17 @@ class S3StorageDriver(StorageDriver):
                 yield obj
 
     def get_container(self, container_name):
-        # This is very inefficient, but afaik it's the only way to do it
-        containers = self.list_containers()
-
         try:
-            container = [c for c in containers if c.name == container_name][0]
-        except IndexError:
-            raise ContainerDoesNotExistError(value=None, driver=self,
-                                             container_name=container_name)
-
-        return container
+            response = self.connection.request('/%s' % container_name,
+                                               method='HEAD')
+            if response.status == httplib.NOT_FOUND:
+                raise ContainerDoesNotExistError(value=None, driver=self,
+                                                 container_name=container_name)
+        except InvalidCredsError:
+            # This just means the user doesn't have IAM permissions to do a
+            # HEAD request but other requests might work.
+            pass
+        return Container(name=container_name, extra=None, driver=self)
 
     def get_object(self, container_name, object_name):
         container = self.get_container(container_name=container_name)
@@ -316,11 +324,11 @@ class S3StorageDriver(StorageDriver):
         """
         Return a container path
 
-        @param container: Container instance
-        @type  container: L{Container}
+        :param container: Container instance
+        :type  container: :class:`Container`
 
-        @return: A path for this container.
-        @rtype: C{str}
+        :return: A path for this container.
+        :rtype: ``str``
         """
         return '/%s' % (container.name)
 
@@ -328,14 +336,14 @@ class S3StorageDriver(StorageDriver):
         """
         Return an object's CDN path.
 
-        @param container: Container instance
-        @type  container: L{Container}
+        :param container: Container instance
+        :type  container: :class:`Container`
 
-        @param object_name: Object name
-        @type  object_name: L{str}
+        :param object_name: Object name
+        :type  object_name: :class:`str`
 
-        @return: A  path for this object.
-        @rtype: C{str}
+        :return: A  path for this object.
+        :rtype: ``str``
         """
         container_url = self._get_container_path(container)
         object_name_cleaned = self._clean_object_name(object_name)
@@ -419,10 +427,10 @@ class S3StorageDriver(StorageDriver):
     def upload_object(self, file_path, container, object_name, extra=None,
                       verify_hash=True, ex_storage_class=None):
         """
-        @inherits: L{StorageDriver.upload_object}
+        @inherits: :class:`StorageDriver.upload_object`
 
-        @param ex_storage_class: Storage class
-        @type ex_storage_class: C{str}
+        :param ex_storage_class: Storage class
+        :type ex_storage_class: ``str``
         """
         upload_func = self._upload_file
         upload_func_kwargs = {'file_path': file_path}
@@ -440,27 +448,27 @@ class S3StorageDriver(StorageDriver):
         Callback invoked for uploading data to S3 using Amazon's
         multipart upload mechanism
 
-        @param response: Response object from the initial POST request
-        @type response: L{S3RawResponse}
+        :param response: Response object from the initial POST request
+        :type response: :class:`S3RawResponse`
 
-        @param data: Any data from the initial POST request
-        @type data: C{str}
+        :param data: Any data from the initial POST request
+        :type data: ``str``
 
-        @param iterator: The generator for fetching the upload data
-        @type iterator: C{generator}
+        :param iterator: The generator for fetching the upload data
+        :type iterator: ``generator``
 
-        @param container: The container owning the object to which data is
+        :param container: The container owning the object to which data is
             being uploaded
-        @type container: L{Container}
+        :type container: :class:`Container`
 
-        @param object_name: The name of the object to which we are uploading
-        @type object_name: C{str}
+        :param object_name: The name of the object to which we are uploading
+        :type object_name: ``str``
 
-        @keyword calculate_hash: Indicates if we must calculate the data hash
-        @type calculate_hash: C{bool}
+        :keyword calculate_hash: Indicates if we must calculate the data hash
+        :type calculate_hash: ``bool``
 
-        @return: A tuple of (status, checksum, bytes transferred)
-        @rtype: C{tuple}
+        :return: A tuple of (status, checksum, bytes transferred)
+        :rtype: ``tuple``
         """
 
         object_path = self._get_object_path(container, object_name)
@@ -496,20 +504,20 @@ class S3StorageDriver(StorageDriver):
         """
         Uploads data from an interator in fixed sized chunks to S3
 
-        @param iterator: The generator for fetching the upload data
-        @type iterator: C{generator}
+        :param iterator: The generator for fetching the upload data
+        :type iterator: ``generator``
 
-        @param object_path: The path of the object to which we are uploading
-        @type object_name: C{str}
+        :param object_path: The path of the object to which we are uploading
+        :type object_name: ``str``
 
-        @param upload_id: The upload id allocated for this multipart upload
-        @type upload_id: C{str}
+        :param upload_id: The upload id allocated for this multipart upload
+        :type upload_id: ``str``
 
-        @keyword calculate_hash: Indicates if we must calculate the data hash
-        @type calculate_hash: C{bool}
+        :keyword calculate_hash: Indicates if we must calculate the data hash
+        :type calculate_hash: ``bool``
 
-        @return: A tuple of (chunk info, checksum, bytes transferred)
-        @rtype: C{tuple}
+        :return: A tuple of (chunk info, checksum, bytes transferred)
+        :rtype: ``tuple``
         """
 
         data_hash = None
@@ -522,7 +530,8 @@ class S3StorageDriver(StorageDriver):
         params = {'uploadId': upload_id}
 
         # Read the input data in chunk sizes suitable for AWS
-        for data in read_in_chunks(iterator, chunk_size=CHUNK_SIZE):
+        for data in read_in_chunks(iterator, chunk_size=CHUNK_SIZE,
+                                   fill_size=True, yield_empty=True):
             bytes_transferred += len(data)
 
             if calculate_hash:
@@ -560,14 +569,14 @@ class S3StorageDriver(StorageDriver):
         """
         Makes a final commit of the data.
 
-        @param object_path: Server side object path.
-        @type object_path: C{str}
+        :param object_path: Server side object path.
+        :type object_path: ``str``
 
-        @param upload_id: ID of the multipart upload.
-        @type upload_id: C{str}
+        :param upload_id: ID of the multipart upload.
+        :type upload_id: ``str``
 
-        @param upload_id: A list of (chunk_number, chunk_hash) tuples.
-        @type upload_id: C{list}
+        :param upload_id: A list of (chunk_number, chunk_hash) tuples.
+        :type upload_id: ``list``
         """
 
         root = Element('CompleteMultipartUpload')
@@ -588,7 +597,10 @@ class S3StorageDriver(StorageDriver):
                                            method='POST')
 
         if response.status != httplib.OK:
-            raise LibcloudError('Error in multipart commit', driver=self)
+            element = response.object
+            code, message = response._parse_error_details(element=element)
+            msg = 'Error in multipart commit: %s (%s)' % (message, code)
+            raise LibcloudError(msg, driver=self)
 
         # Get the server's etag to be passed back to the caller
         body = response.parse_body()
@@ -600,11 +612,11 @@ class S3StorageDriver(StorageDriver):
         """
         Aborts an already initiated multipart upload
 
-        @param object_path: Server side object path.
-        @type object_path: C{str}
+        :param object_path: Server side object path.
+        :type object_path: ``str``
 
-        @param upload_id: ID of the multipart upload.
-        @type upload_id: C{str}
+        :param upload_id: ID of the multipart upload.
+        :type upload_id: ``str``
         """
 
         params = {'uploadId': upload_id}
@@ -618,10 +630,10 @@ class S3StorageDriver(StorageDriver):
     def upload_object_via_stream(self, iterator, container, object_name,
                                  extra=None, ex_storage_class=None):
         """
-        @inherits: L{StorageDriver.upload_object_via_stream}
+        @inherits: :class:`StorageDriver.upload_object_via_stream`
 
-        @param ex_storage_class: Storage class
-        @type ex_storage_class: C{str}
+        :param ex_storage_class: Storage class
+        :type ex_storage_class: ``str``
         """
 
         method = 'PUT'
@@ -675,18 +687,18 @@ class S3StorageDriver(StorageDriver):
         Each multipart upload which has not been committed or aborted is
         considered in-progress.
 
-        @param container: The container holding the uploads
-        @type container: L{Container}
+        :param container: The container holding the uploads
+        :type container: :class:`Container`
 
-        @keyword prefix: Print only uploads of objects with this prefix
-        @type prefix: C{str}
+        :keyword prefix: Print only uploads of objects with this prefix
+        :type prefix: ``str``
 
-        @keyword delimiter: The object/key names are grouped based on
+        :keyword delimiter: The object/key names are grouped based on
             being split by this delimiter
-        @type delimiter: C{str}
+        :type delimiter: ``str``
 
-        @return: A generator of S3MultipartUpload instances.
-        @rtype: C{generator} of L{S3MultipartUpload}
+        :return: A generator of S3MultipartUpload instances.
+        :rtype: ``generator`` of :class:`S3MultipartUpload`
         """
 
         if not self.supports_s3_multipart_upload:
@@ -752,11 +764,11 @@ class S3StorageDriver(StorageDriver):
         Extension method for removing all partially completed S3 multipart
         uploads.
 
-        @param container: The container holding the uploads
-        @type container: L{Container}
+        :param container: The container holding the uploads
+        :type container: :class:`Container`
 
-        @keyword prefix: Delete only uploads of objects with this prefix
-        @type prefix: C{str}
+        :keyword prefix: Delete only uploads of objects with this prefix
+        :type prefix: ``str``
         """
 
         # Iterate through the container and delete the upload ids
@@ -784,11 +796,15 @@ class S3StorageDriver(StorageDriver):
 
         content_type = extra.get('content_type', None)
         meta_data = extra.get('meta_data', None)
+        acl = extra.get('acl', None)
 
         if meta_data:
             for key, value in list(meta_data.items()):
                 key = 'x-amz-meta-%s' % (key)
                 headers[key] = value
+
+        if acl:
+            headers['x-amz-acl'] = acl
 
         request_path = self._get_object_path(container, object_name)
 
@@ -818,7 +834,7 @@ class S3StorageDriver(StorageDriver):
         elif response.status == httplib.OK:
             obj = Object(
                 name=object_name, size=bytes_transferred, hash=server_hash,
-                extra=None, meta_data=meta_data, container=container,
+                extra={'acl': acl}, meta_data=meta_data, container=container,
                 driver=self)
 
             return obj
@@ -899,6 +915,10 @@ class S3StorageDriver(StorageDriver):
                      )
 
         return obj
+
+
+class S3StorageDriver(AWSDriver, BaseS3StorageDriver):
+    connectionCls = S3Connection
 
 
 class S3USWestConnection(S3Connection):

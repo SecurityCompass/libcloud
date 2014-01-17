@@ -65,7 +65,10 @@ release = '0.14.0-dev'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['_build']
+exclude_patterns = [
+    '_build',
+    '*/_*.rst'
+]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -96,6 +99,7 @@ on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
 
 if on_rtd:
     html_theme = 'default'
+    RTD_NEW_THEME = True
 else:
     html_theme = 'nature'
 
@@ -250,3 +254,5 @@ texinfo_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'http://docs.python.org/': None}
+
+autoclass_content = 'both'

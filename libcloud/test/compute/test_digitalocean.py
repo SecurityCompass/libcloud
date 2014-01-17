@@ -14,29 +14,25 @@
 # limitations under the License.
 import sys
 import unittest
-import base64
 
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json  # NOQA
 
 from libcloud.utils.py3 import httplib
-from libcloud.utils.py3 import b
-from libcloud.utils.py3 import u
 
 from libcloud.common.types import InvalidCredsError
 from libcloud.compute.drivers.digitalocean import DigitalOceanNodeDriver
-from libcloud.compute.types import NodeState
 
-from libcloud.test import MockHttp
-from libcloud.test.compute import TestCaseMixin
+from libcloud.test import MockHttpTestCase
 from libcloud.test.file_fixtures import ComputeFileFixtures
 from libcloud.test.secrets import DIGITAL_OCEAN_PARAMS
 
 
-#class DigitalOceanTests(unittest.TestCase, TestCaseMixin):
+# class DigitalOceanTests(unittest.TestCase, TestCaseMixin):
 class DigitalOceanTests(unittest.TestCase):
+
     def setUp(self):
         DigitalOceanNodeDriver.connectionCls.conn_classes = \
             (None, DigitalOceanMockHttp)
@@ -107,7 +103,7 @@ class DigitalOceanTests(unittest.TestCase):
         self.assertTrue(result)
 
 
-class DigitalOceanMockHttp(MockHttp):
+class DigitalOceanMockHttp(MockHttpTestCase):
     fixtures = ComputeFileFixtures('digitalocean')
 
     def _regions(self, method, url, body, headers):
@@ -133,6 +129,7 @@ class DigitalOceanMockHttp(MockHttp):
 
     def _droplets_119461_destroy(self, method, url, body, headers):
         # destroy_node
+        self.assertUrlContainsQueryParams(url, {'scrub_data': '1'})
         body = self.fixtures.load('destroy_node.json')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 

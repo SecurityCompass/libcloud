@@ -16,7 +16,7 @@ import os
 import sys
 import doctest
 
-from distutils.core import setup
+from setuptools import setup
 from distutils.core import Command
 from unittest import TextTestRunner, TestLoader
 from glob import glob
@@ -66,6 +66,17 @@ def read_version_string():
     return version
 
 
+def forbid_publish():
+    argv = sys.argv
+    if 'upload'in argv:
+        print('You shouldn\'t use upload command to upload a release to PyPi. '
+              'You need to manually upload files generated using release.sh '
+              'script.\n'
+              'For more information, see "Making a release section" in the '
+              'documentation')
+        sys.exit(1)
+
+
 class TestCommand(Command):
     description = "run test suite"
     user_options = []
@@ -96,8 +107,8 @@ class TestCommand(Command):
                 unittest2
             except ImportError:
                 print('Python version: %s' % (sys.version))
-                print('Missing "unittest2" library. unittest2 is library is needed '
-                      'to run the tests. You can install it using pip: '
+                print('Missing "unittest2" library. unittest2 is library is '
+                      'needed to run the tests. You can install it using pip: '
                       'pip install unittest2')
                 sys.exit(1)
 
@@ -157,31 +168,6 @@ class TestCommand(Command):
         return not res.wasSuccessful()
 
 
-class Pep8Command(Command):
-    description = "run pep8 script"
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        try:
-            import pep8
-            pep8
-        except ImportError:
-            print ('Missing "pep8" library. You can install it using pip: '
-                   'pip install pep8')
-            sys.exit(1)
-
-        cwd = os.getcwd()
-        retcode = call(('pep8 %s/libcloud/' %
-                       (cwd)).split(' '))
-        sys.exit(retcode)
-
-
 class ApiDocsCommand(Command):
     description = "generate API documentation"
     user_options = []
@@ -229,6 +215,7 @@ class CoverageCommand(Command):
         cov.save()
         cov.html_report()
 
+forbid_publish()
 
 setup(
     name='apache-libcloud',
@@ -248,10 +235,10 @@ setup(
     url='http://libcloud.apache.org/',
     cmdclass={
         'test': TestCommand,
-        'pep8': Pep8Command,
         'apidocs': ApiDocsCommand,
         'coverage': CoverageCommand
     },
+    zip_safe=False,
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',

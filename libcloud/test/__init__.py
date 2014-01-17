@@ -20,6 +20,7 @@ from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import StringIO
 from libcloud.utils.py3 import urlparse
 from libcloud.utils.py3 import parse_qs
+from libcloud.utils.py3 import parse_qsl
 from libcloud.utils.py3 import u
 from libcloud.utils.py3 import unittest2_required
 
@@ -53,6 +54,7 @@ class LibcloudTestCase(unittest.TestCase):
         self.assertEqual(actual, expected,
                          'expected %d, but %d mock methods were executed'
                          % (expected, actual))
+
 
 class multipleresponse(object):
     """
@@ -108,16 +110,21 @@ class MockResponse(object):
     def msg(self):
         raise NotImplemented
 
+
 class BaseMockHttpObject(object):
     def _get_method_name(self, type, use_param, qs, path):
         path = path.split('?')[0]
         meth_name = path.replace('/', '_').replace('.', '_').replace('-', '_')
+
         if type:
             meth_name = '%s_%s' % (meth_name, self.type)
-        if use_param:
-            param = qs[self.use_param][0].replace('.', '_').replace('-', '_')
+
+        if use_param and use_param in qs:
+            param = qs[use_param][0].replace('.', '_').replace('-', '_')
             meth_name = '%s_%s' % (meth_name, param)
+
         return meth_name
+
 
 class MockHttp(BaseMockHttpObject):
     """
@@ -155,9 +162,9 @@ class MockHttp(BaseMockHttpObject):
     response = None
 
     type = None
-    use_param = None # will use this param to namespace the request function
+    use_param = None  # will use this param to namespace the request function
 
-    test = None # TestCase instance which is using this mock
+    test = None  # TestCase instance which is using this mock
 
     def __init__(self, host, port, *args, **kwargs):
         self.host = host
@@ -206,6 +213,7 @@ class MockHttp(BaseMockHttpObject):
         return (httplib.FORBIDDEN, 'Oh Noes!', {'X-Foo': 'fail'},
                 httplib.responses[httplib.FORBIDDEN])
 
+
 class MockHttpTestCase(MockHttp, unittest.TestCase):
     # Same as the MockHttp class, but you can also use assertions in the
     # classes which inherit from this one.
@@ -217,6 +225,34 @@ class MockHttpTestCase(MockHttp, unittest.TestCase):
 
     def runTest(self):
         pass
+
+    def assertUrlContainsQueryParams(self, url, expected_params, strict=False):
+        """
+        Assert that provided url contains provided query parameters.
+
+        :param url: URL to assert.
+        :type url: ``str``
+
+        :param expected_params: Dictionary of expected query parameters.
+        :type expected_params: ``dict``
+
+        :param strict: Assert that provided url contains only expected_params.
+                       (defaults to ``False``)
+        :type strict: ``bool``
+        """
+        question_mark_index = url.find('?')
+
+        if question_mark_index != -1:
+            url = url[question_mark_index + 1:]
+
+        params = dict(parse_qsl(url))
+
+        if strict:
+            self.assertDictEqual(params, expected_params)
+        else:
+            for key, value in expected_params.items():
+                self.assertEqual(params[key], value)
+
 
 class StorageMockHttp(MockHttp):
     def putrequest(self, method, action):
@@ -230,6 +266,7 @@ class StorageMockHttp(MockHttp):
 
     def send(self, data):
         pass
+
 
 class MockRawResponse(BaseMockHttpObject):
     """

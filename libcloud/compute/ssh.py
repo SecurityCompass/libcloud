@@ -29,11 +29,19 @@ except ImportError:
 # Ref: https://bugs.launchpad.net/paramiko/+bug/392973
 
 import os
+import time
 import subprocess
 import logging
 
 from os.path import split as psplit
 from os.path import join as pjoin
+
+from libcloud.utils.logging import ExtraLogFormatter
+from libcloud.utils.py3 import StringIO
+
+
+# Maximum number of bytes to read at once from a socket
+CHUNK_SIZE = 1024
 
 
 class BaseSSHClient(object):
@@ -44,20 +52,22 @@ class BaseSSHClient(object):
     def __init__(self, hostname, port=22, username='root', password=None,
                  key=None, timeout=None):
         """
-        @type hostname: C{str}
-        @keyword hostname: Hostname or IP address to connect to.
+        :type hostname: ``str``
+        :keyword hostname: Hostname or IP address to connect to.
 
-        @type port: C{int}
-        @keyword port: TCP port to communicate on, defaults to 22.
+        :type port: ``int``
+        :keyword port: TCP port to communicate on, defaults to 22.
 
-        @type username: C{str}
-        @keyword username: Username to use, defaults to root.
+        :type username: ``str``
+        :keyword username: Username to use, defaults to root.
 
-        @type password: C{str}
-        @keyword password: Password to authenticate with.
+        :type password: ``str``
+        :keyword password: Password to authenticate with or a password used
+                           to unlock a private key if a password protected key
+                           is used.
 
-        @type key: C{list}
-        @keyword key: Private SSH keys to authenticate with.
+        :type key: ``str`` or ``list``
+        :keyword key: A list of paths to the private key files to use.
         """
         self.hostname = hostname
         self.port = port
@@ -70,9 +80,9 @@ class BaseSSHClient(object):
         """
         Connect to the remote node over SSH.
 
-        @return: True if the connection has been successfuly established, False
+        :return: True if the connection has been successfuly established, False
                  otherwise.
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
         raise NotImplementedError(
             'connect not implemented for this ssh client')
@@ -81,20 +91,20 @@ class BaseSSHClient(object):
         """
         Upload a file to the remote node.
 
-        @type path: C{str}
-        @keyword path: File path on the remote node.
+        :type path: ``str``
+        :keyword path: File path on the remote node.
 
-        @type contents: C{str}
-        @keyword contents: File Contents.
+        :type contents: ``str``
+        :keyword contents: File Contents.
 
-        @type chmod: C{int}
-        @keyword chmod: chmod file to this after creation.
+        :type chmod: ``int``
+        :keyword chmod: chmod file to this after creation.
 
-        @type mode: C{str}
-        @keyword mode: Mode in which the file is opened.
+        :type mode: ``str``
+        :keyword mode: Mode in which the file is opened.
 
-        @return: Full path to the location where a file has been saved.
-        @rtype: C{str}
+        :return: Full path to the location where a file has been saved.
+        :rtype: ``str``
         """
         raise NotImplementedError(
             'put not implemented for this ssh client')
@@ -103,12 +113,12 @@ class BaseSSHClient(object):
         """
         Delete/Unlink a file on the remote node.
 
-        @type path: C{str}
-        @keyword path: File path on the remote node.
+        :type path: ``str``
+        :keyword path: File path on the remote node.
 
-        @return: True if the file has been successfuly deleted, False
+        :return: True if the file has been successfuly deleted, False
                  otherwise.
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
         raise NotImplementedError(
             'delete not implemented for this ssh client')
@@ -117,10 +127,10 @@ class BaseSSHClient(object):
         """
         Run a command on a remote node.
 
-        @type cmd: C{str}
-        @keyword cmd: Command to run.
+        :type cmd: ``str``
+        :keyword cmd: Command to run.
 
-        @return C{list} of [stdout, stderr, exit_status]
+        :return ``list`` of [stdout, stderr, exit_status]
         """
         raise NotImplementedError(
             'run not implemented for this ssh client')
@@ -129,12 +139,24 @@ class BaseSSHClient(object):
         """
         Shutdown connection to the remote node.
 
-        @return: True if the connection has been successfuly closed, False
+        :return: True if the connection has been successfuly closed, False
                  otherwise.
-        @rtype: C{bool}
+        :rtype: ``bool``
         """
         raise NotImplementedError(
             'close not implemented for this ssh client')
+
+    def _get_and_setup_logger(self):
+        logger = logging.getLogger('libcloud.compute.ssh')
+        path = os.getenv('LIBCLOUD_DEBUG')
+
+        if path:
+            handler = logging.FileHandler(path)
+            handler.setFormatter(ExtraLogFormatter())
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+
+        return logger
 
 
 class ParamikoSSHClient(BaseSSHClient):
@@ -144,10 +166,22 @@ class ParamikoSSHClient(BaseSSHClient):
     """
     def __init__(self, hostname, port=22, username='root', password=None,
                  key=None, timeout=None):
+        """
+        Authentication is always attempted in the following order:
+
+        - The key passed in (if key is provided)
+        - Any key we can find through an SSH agent (only if no password and
+          key is provided)
+        - Any "id_rsa" or "id_dsa" key discoverable in ~/.ssh/ (only if no
+          password and key is provided)
+        - Plain username/password auth, if a password was given (if password is
+          provided)
+        """
         super(ParamikoSSHClient, self).__init__(hostname, port, username,
                                                 password, key, timeout)
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.logger = self._get_and_setup_logger()
 
     def connect(self):
         conninfo = {'hostname': self.hostname,
@@ -158,19 +192,28 @@ class ParamikoSSHClient(BaseSSHClient):
 
         if self.password:
             conninfo['password'] = self.password
-        elif self.key:
+
+        if self.key:
             conninfo['key_filename'] = self.key
-        else:
+
+        if not self.password and not self.key:
             conninfo['allow_agent'] = True
             conninfo['look_for_keys'] = True
 
         if self.timeout:
             conninfo['timeout'] = self.timeout
 
+        extra = {'_hostname': self.hostname, '_port': self.port,
+                 '_username': self.username, '_timeout': self.timeout}
+        self.logger.debug('Connecting to server', extra=extra)
+
         self.client.connect(**conninfo)
         return True
 
     def put(self, path, contents=None, chmod=None, mode='w'):
+        extra = {'_path': path, '_mode': mode, '_chmod': chmod}
+        self.logger.debug('Uploading file', extra=extra)
+
         sftp = self.client.open_sftp()
         # less than ideal, but we need to mkdir stuff otherwise file() fails
         head, tail = psplit(path)
@@ -208,28 +251,97 @@ class ParamikoSSHClient(BaseSSHClient):
         return file_path
 
     def delete(self, path):
+        extra = {'_path': path}
+        self.logger.debug('Deleting file', extra=extra)
+
         sftp = self.client.open_sftp()
         sftp.unlink(path)
         sftp.close()
         return True
 
     def run(self, cmd):
-        # based on exec_command()
+        """
+        Note: This function is based on paramiko's exec_command()
+        method.
+        """
+        extra = {'_cmd': cmd}
+        self.logger.debug('Executing command', extra=extra)
+
+        # Use the system default buffer size
         bufsize = -1
-        t = self.client.get_transport()
-        chan = t.open_session()
+
+        transport = self.client.get_transport()
+        chan = transport.open_session()
+
         chan.exec_command(cmd)
+
+        stdout = StringIO()
+        stderr = StringIO()
+
+        # Create a stdin file and immediately close it to prevent any
+        # interactive script from hanging the process.
         stdin = chan.makefile('wb', bufsize)
-        stdout = chan.makefile('rb', bufsize)
-        stderr = chan.makefile_stderr('rb', bufsize)
-        #stdin, stdout, stderr = self.client.exec_command(cmd)
         stdin.close()
+
+        # Receive all the output
+        # Note #1: This is used instead of chan.makefile approach to prevent
+        # buffering issues and hanging if the executed command produces a lot
+        # of output.
+        #
+        # Note #2: If you are going to remove "ready" checks inside the loop
+        # you are going to have a bad time. Trying to consume from a channel
+        # which is not ready will block for indefinitely.
+        exit_status_ready = chan.exit_status_ready()
+
+        while not exit_status_ready:
+            if chan.recv_ready():
+                data = chan.recv(CHUNK_SIZE)
+
+                while data:
+                    stdout.write(data)
+                    ready = chan.recv_ready()
+
+                    if not ready:
+                        break
+
+                    data = chan.recv(CHUNK_SIZE)
+
+            if chan.recv_stderr_ready():
+                data = chan.recv_stderr(CHUNK_SIZE)
+
+                while data:
+                    stderr.write(data)
+                    ready = chan.recv_stderr_ready()
+
+                    if not ready:
+                        break
+
+                    data = chan.recv_stderr(CHUNK_SIZE)
+
+            # We need to check the exist status here, because the command could
+            # print some output and exit during this sleep bellow.
+            exit_status_ready = chan.exit_status_ready()
+
+            if exit_status_ready:
+                break
+
+            # Short sleep to prevent busy waiting
+            time.sleep(1.5)
+
+        # Receive the exit status code of the command we ran.
         status = chan.recv_exit_status()
-        so = stdout.read()
-        se = stderr.read()
-        return [so, se, status]
+
+        stdout = stdout.getvalue()
+        stderr = stderr.getvalue()
+
+        extra = {'_status': status, '_stdout': stdout, '_stderr': stderr}
+        self.logger.debug('Command finished', extra=extra)
+
+        return [stdout, stderr, status]
 
     def close(self):
+        self.logger.debug('Closing server connection')
+
         self.client.close()
         return True
 
@@ -288,17 +400,6 @@ class ShellOutSSHClient(BaseSSHClient):
     def close(self):
         return True
 
-    def _get_and_setup_logger(self):
-        logger = logging.getLogger('libcloud.compute.ssh')
-        path = os.getenv('LIBCLOUD_DEBUG')
-
-        if path:
-            handler = logging.FileHandler(path)
-            logger.addHandler(handler)
-            logger.setLevel(logging.DEBUG)
-
-        return logger
-
     def _get_base_ssh_command(self):
         cmd = ['ssh']
 
@@ -316,11 +417,11 @@ class ShellOutSSHClient(BaseSSHClient):
         """
         Run a command on a remote server.
 
-        @param      cmd: Command to run.
-        @type       cmd: C{list} of C{str}
+        :param      cmd: Command to run.
+        :type       cmd: ``list`` of ``str``
 
-        @return: Command stdout, stderr and status code.
-        @rtype: C{tuple}
+        :return: Command stdout, stderr and status code.
+        :rtype: ``tuple``
         """
         base_cmd = self._get_base_ssh_command()
         full_cmd = base_cmd + [' '.join(cmd)]

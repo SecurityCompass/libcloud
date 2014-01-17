@@ -41,7 +41,13 @@ import sys
 try:
     import secrets
 except ImportError:
-    secrets = None
+    print('"demos/secrets.py" not found.\n\n'
+          'Please copy secrets.py-dist to secrets.py and update the GCE* '
+          'values with appropriate authentication information.\n'
+          'Additional information about setting these values can be found '
+          'in the docstring for:\n'
+          'libcloud/common/google.py\n')
+    sys.exit(1)
 
 # Add parent dir of this file's dir to sys.path (OS-agnostically)
 sys.path.append(os.path.normpath(os.path.join(os.path.dirname(__file__),
@@ -68,10 +74,14 @@ CLEANUP = True
 args = getattr(secrets, 'GCE_PARAMS', ())
 kwargs = getattr(secrets, 'GCE_KEYWORD_PARAMS', {})
 
+# Add datacenter to kwargs for Python 2.5 compatibility
+kwargs = kwargs.copy()
+kwargs['datacenter'] = DATACENTER
+
 
 # ==== HELPER FUNCTIONS ====
 def get_gce_driver():
-    driver = get_driver(Provider.GCE)(*args, datacenter=DATACENTER, **kwargs)
+    driver = get_driver(Provider.GCE)(*args, **kwargs)
     return driver
 
 
@@ -79,30 +89,30 @@ def display(title, resource_list):
     """
     Display a list of resources.
 
-    @param  title: String to be printed at the heading of the list.
-    @type   title: C{str}
+    :param  title: String to be printed at the heading of the list.
+    :type   title: ``str``
 
-    @param  resource_list: List of resources to display
-    @type   resource_list: Any C{object} with a C{name} attribute
+    :param  resource_list: List of resources to display
+    :type   resource_list: Any ``object`` with a C{name} attribute
     """
     print('%s:' % title)
     for item in resource_list[:10]:
         print('   %s' % item.name)
 
 
-def clean_up(base_name, node_list=None, resource_list=None):
+def clean_up(gce, base_name, node_list=None, resource_list=None):
     """
     Destroy all resources that have a name beginning with 'base_name'.
 
-    @param  base_name: String with the first part of the name of resources
+    :param  base_name: String with the first part of the name of resources
                        to destroy
-    @type   base_name: C{str}
+    :type   base_name: ``str``
 
-    @keyword  node_list: List of nodes to consider for deletion
-    @type     node_list: C{list} of L{Node}
+    :keyword  node_list: List of nodes to consider for deletion
+    :type     node_list: ``list`` of :class:`Node`
 
-    @keyword  resource_list: List of resources to consider for deletion
-    @type     resource_list: C{list} of I{Resource Objects}
+    :keyword  resource_list: List of resources to consider for deletion
+    :type     resource_list: ``list`` of I{Resource Objects}
     """
     if node_list is None:
         node_list = []
@@ -132,7 +142,6 @@ def clean_up(base_name, node_list=None, resource_list=None):
 
 # ==== DEMO CODE STARTS HERE ====
 def main():
-    global gce
     gce = get_gce_driver()
     # Get project info and print name
     project = gce.ex_get_project()
@@ -171,14 +180,17 @@ def main():
     zones = gce.ex_list_zones()
     display('Zones', zones)
 
+    snapshots = gce.ex_list_snapshots()
+    display('Snapshots', snapshots)
+
     # == Clean up any old demo resources ==
     print('Cleaning up any "%s" resources:' % DEMO_BASE_NAME)
-    clean_up(DEMO_BASE_NAME, all_nodes,
-             all_addresses + all_volumes + firewalls + networks)
+    clean_up(gce, DEMO_BASE_NAME, all_nodes,
+             all_addresses + all_volumes + firewalls + networks + snapshots)
 
-    # == Create Node with non-persistent disk ==
+    # == Create Node with disk auto-created ==
     if MAX_NODES > 1:
-        print('Creating Node with non-persistent disk:')
+        print('Creating Node with auto-created disk:')
         name = '%s-np-node' % DEMO_BASE_NAME
         node_1 = gce.create_node(name, 'n1-standard-1', 'debian-7',
                                  ex_tags=['libcloud'])
@@ -196,17 +208,29 @@ def main():
             if gce.detach_volume(volume, ex_node=node_1):
                 print('   Detached %s from %s' % (volume.name, node_1.name))
 
-    # == Create Node with persistent disk ==
-    print('Creating Node with Persistent disk:')
+    # == Create Snapshot ==
+    print('Creating a snapshot from existing disk:')
+    # Create a disk to snapshot
+    vol_name = '%s-snap-template' % DEMO_BASE_NAME
+    image = gce.ex_get_image('debian-7')
+    vol = gce.create_volume(None, vol_name, image=image)
+    print('   Created disk %s to shapshot' % DEMO_BASE_NAME)
+    # Snapshot volume
+    snapshot = vol.snapshot('%s-snapshot' % DEMO_BASE_NAME)
+    print('   Snapshot %s created' % snapshot.name)
+
+    # == Create Node with existing disk ==
+    print('Creating Node with existing disk:')
     name = '%s-persist-node' % DEMO_BASE_NAME
     # Use objects this time instead of names
     # Get latest Debian 7 image
     image = gce.ex_get_image('debian-7')
     # Get Machine Size
     size = gce.ex_get_size('n1-standard-1')
-    # Create Disk.  Size is None to just take default of image
+    # Create Disk from Snapshot created above
     volume_name = '%s-boot-disk' % DEMO_BASE_NAME
-    volume = gce.create_volume(None, volume_name, image=image)
+    volume = gce.create_volume(None, volume_name, snapshot=snapshot)
+    print('   Created %s from snapshot' % volume.name)
     # Create Node with Disk
     node_2 = gce.create_node(name, size, image, ex_tags=['libcloud'],
                              ex_boot_disk=volume)
@@ -273,10 +297,13 @@ def main():
     networks = gce.ex_list_networks()
     display('Networks', networks)
 
+    snapshots = gce.ex_list_snapshots()
+    display('Snapshots', snapshots)
+
     if CLEANUP:
         print('Cleaning up %s resources created.' % DEMO_BASE_NAME)
-        clean_up(DEMO_BASE_NAME, nodes,
-                 addresses + volumes + firewalls + networks)
+        clean_up(gce, DEMO_BASE_NAME, nodes,
+                 addresses + volumes + firewalls + networks + snapshots)
 
 if __name__ == '__main__':
     main()

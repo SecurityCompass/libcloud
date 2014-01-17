@@ -42,7 +42,7 @@ class CloudStackLBDriver(CloudStackDriverMixIn, Driver):
     def __init__(self, key, secret=None, secure=True, host=None,
                  path=None, port=None, *args, **kwargs):
         """
-        @inherits: L{Driver.__init__}
+        @inherits: :class:`Driver.__init__`
         """
         host = host if host else self.host
         path = path if path else self.path
@@ -65,17 +65,20 @@ class CloudStackLBDriver(CloudStackDriverMixIn, Driver):
         """
         We don't actually have any protocol awareness beyond TCP.
 
-        @rtype: C{list} of C{str}
+        :rtype: ``list`` of ``str``
         """
         return ['tcp']
 
     def list_balancers(self):
-        balancers = self._sync_request('listLoadBalancerRules')
+        balancers = self._sync_request(command='listLoadBalancerRules',
+                                       method='GET')
         balancers = balancers.get('loadbalancerrule', [])
         return [self._to_balancer(balancer) for balancer in balancers]
 
     def get_balancer(self, balancer_id):
-        balancer = self._sync_request('listLoadBalancerRules', id=balancer_id)
+        balancer = self._sync_request(command='listLoadBalancerRules',
+                                      params={'id': balancer_id},
+                                      method='GET')
         balancer = balancer.get('loadbalancerrule', [])
         if not balancer:
             raise Exception("no such load balancer: " + str(balancer_id))
@@ -85,33 +88,35 @@ class CloudStackLBDriver(CloudStackDriverMixIn, Driver):
                         algorithm=DEFAULT_ALGORITHM, location=None,
                         private_port=None):
         """
-        @inherits: L{Driver.create_balancer}
+        @inherits: :class:`Driver.create_balancer`
 
-        @param location: Location
-        @type  location: L{NodeLocation}
+        :param location: Location
+        :type  location: :class:`NodeLocation`
 
-        @param private_port: Private port
-        @type  private_port: C{int}
+        :param private_port: Private port
+        :type  private_port: ``int``
         """
         if location is None:
-            locations = self._sync_request('listZones')
+            locations = self._sync_request(command='listZones', method='GET')
             location = locations['zone'][0]['id']
         else:
             location = location.id
         if private_port is None:
             private_port = port
 
-        result = self._async_request('associateIpAddress', zoneid=location)
+        result = self._async_request(command='associateIpAddress',
+                                     params={'zoneid': location},
+                                     method='GET')
         public_ip = result['ipaddress']
 
         result = self._sync_request(
-            'createLoadBalancerRule',
-            algorithm=self._ALGORITHM_TO_VALUE_MAP[algorithm],
-            name=name,
-            privateport=private_port,
-            publicport=port,
-            publicipid=public_ip['id'],
-        )
+            command='createLoadBalancerRule',
+            params={'algorithm': self._ALGORITHM_TO_VALUE_MAP[algorithm],
+                    'name': name,
+                    'privateport': private_port,
+                    'publicport': port,
+                    'publicipid': public_ip['id']},
+            method='GET')
 
         balancer = self._to_balancer(result['loadbalancer'])
 
@@ -121,26 +126,34 @@ class CloudStackLBDriver(CloudStackDriverMixIn, Driver):
         return balancer
 
     def destroy_balancer(self, balancer):
-        self._async_request('deleteLoadBalancerRule', id=balancer.id)
-        self._async_request('disassociateIpAddress',
-                            id=balancer.ex_public_ip_id)
+        self._async_request(command='deleteLoadBalancerRule',
+                            params={'id': balancer.id},
+                            method='GET')
+        self._async_request(command='disassociateIpAddress',
+                            params={'id': balancer.ex_public_ip_id},
+                            method='GET')
 
     def balancer_attach_member(self, balancer, member):
         member.port = balancer.ex_private_port
-        self._async_request('assignToLoadBalancerRule', id=balancer.id,
-                            virtualmachineids=member.id)
+        self._async_request(command='assignToLoadBalancerRule',
+                            params={'id': balancer.id,
+                                    'virtualmachineids': member.id},
+                            method='GET')
         return True
 
     def balancer_detach_member(self, balancer, member):
-        self._async_request('removeFromLoadBalancerRule', id=balancer.id,
-                            virtualmachineids=member.id)
+        self._async_request(command='removeFromLoadBalancerRule',
+                            params={'id': balancer.id,
+                                    'virtualmachineids': member.id},
+                            method='GET')
         return True
 
     def balancer_list_members(self, balancer):
-        members = self._sync_request('listLoadBalancerRuleInstances',
-                                     id=balancer.id)
+        members = self._sync_request(command='listLoadBalancerRuleInstances',
+                                     params={'id': balancer.id},
+                                     method='GET')
         members = members['loadbalancerruleinstance']
-        return [self._to_member(m, balancer.ex_private_port, balancer) \
+        return [self._to_member(m, balancer.ex_private_port, balancer)
                 for m in members]
 
     def _to_balancer(self, obj):

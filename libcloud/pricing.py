@@ -37,7 +37,7 @@ __all__ = [
 ]
 
 # Default URL to the pricing file
-DEFAULT_FILE_URL = 'https://git-wip-us.apache.org/repos/asf?p=libcloud.git;a=blob_plain;f=libcloud/data/pricing.json'
+DEFAULT_FILE_URL = 'https://git-wip-us.apache.org/repos/asf?p=libcloud.git;a=blob_plain;f=libcloud/data/pricing.json'  # NOQA
 
 CURRENT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PRICING_FILE_PATH = pjoin(CURRENT_DIRECTORY, 'data/pricing.json')
@@ -133,7 +133,7 @@ def get_size_price(driver_type, driver_name, size_id):
     :param size_id: Unique size ID (can be an integer or a string - depends on
                     the driver)
 
-    :rtype: ``int``
+    :rtype: ``float``
     :return: Size price.
     """
     pricing = get_pricing(driver_type=driver_type, driver_name=driver_name)

@@ -11,10 +11,20 @@ Provider Matrix
 
 .. include:: compute/_supported_providers.rst
 
-Supported Methods
-~~~~~~~~~~~~~~~~~
+Supported Methods (Base compute)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: compute/_supported_providers.rst
+.. include:: compute/_supported_methods_main.rst
+
+Supported Methods (Block Storage)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. include:: compute/_supported_methods_block_storage.rst
+
+Supported Methods (Key pair management)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. include:: compute/_supported_methods_key_pair_management.rst
 
 Load Balancer
 -------------
@@ -27,7 +37,7 @@ Provider Matrix
 Supported Methods
 ~~~~~~~~~~~~~~~~~
 
-.. include:: loadbalancer/_supported_providers.rst
+.. include:: loadbalancer/_supported_methods.rst
 
 Object Storage
 --------------
@@ -37,10 +47,15 @@ Provider Matrix
 
 .. include:: storage/_supported_providers.rst
 
-Supported Methods
-~~~~~~~~~~~~~~~~~
+Supported Methods (Main)
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. include:: storage/_supported_providers.rst
+.. include:: storage/_supported_methods_main.rst
+
+Supported Methods (CDN)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. include:: storage/_supported_methods_cdn.rst
 
 DNS
 ---
@@ -53,4 +68,4 @@ Provider Matrix
 Supported Methods
 ~~~~~~~~~~~~~~~~~
 
-.. include:: dns/_supported_providers.rst
+.. include:: dns/_supported_methods.rst
