@@ -74,6 +74,8 @@ class Provider(object):
     :cvar NEPHOSCALE: NephoScale driver
     :cvar EXOSCALE: Exoscale driver.
     :cvar IKOULA: Ikoula driver.
+    :cvar OUTSCALE_SAS: Outscale SAS driver.
+    :cvar OUTSCALE_INC: Outscale INC driver.
     """
     DUMMY = 'dummy'
     EC2 = 'ec2_us_east'
@@ -104,7 +106,6 @@ class Provider(object):
     NINEFOLD = 'ninefold'
     TERREMARK = 'terremark'
     CLOUDSTACK = 'cloudstack'
-    CLOUDSIGMA_US = 'cloudsigma_us'
     LIBVIRT = 'libvirt'
     JOYENT = 'joyent'
     VCL = 'vcl'
@@ -118,6 +119,12 @@ class Provider(object):
     CLOUDFRAMES = 'cloudframes'
     EXOSCALE = 'exoscale'
     IKOULA = 'ikoula'
+    OUTSCALE_SAS = 'outscale_sas'
+    OUTSCALE_INC = 'outscale_inc'
+
+    # OpenStack based providers
+    HPCLOUD = 'hpcloud'
+    KILI = 'kili'
 
     # Deprecated constants which are still supported
     EC2_US_EAST = 'ec2_us_east'
@@ -138,6 +145,8 @@ class Provider(object):
     ELASTICHOSTS_CA1 = 'elastichosts_ca1'
     ELASTICHOSTS_AU1 = 'elastichosts_au1'
     ELASTICHOSTS_CN1 = 'elastichosts_cn1'
+
+    CLOUDSIGMA_US = 'cloudsigma_us'
 
     # Deprecated constants which aren't supported anymore
     RACKSPACE_UK = 'rackspace_uk'

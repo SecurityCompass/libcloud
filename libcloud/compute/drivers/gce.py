@@ -68,7 +68,6 @@ class GCEConnection(GoogleBaseConnection):
 
     def __init__(self, user_id, key, secure, auth_type=None,
                  credential_file=None, project=None, **kwargs):
-        self.scope = ['https://www.googleapis.com/auth/compute']
         super(GCEConnection, self).__init__(user_id, key, secure=secure,
                                             auth_type=auth_type,
                                             credential_file=credential_file,
@@ -168,13 +167,14 @@ class GCEHealthCheck(UuidMixin):
 class GCEFirewall(UuidMixin):
     """A GCE Firewall rule class."""
     def __init__(self, id, name, allowed, network, source_ranges, source_tags,
-                 driver, extra=None):
+                 target_tags, driver, extra=None):
         self.id = str(id)
         self.name = name
         self.network = network
         self.allowed = allowed
         self.source_ranges = source_ranges
         self.source_tags = source_tags
+        self.target_tags = target_tags
         self.driver = driver
         self.extra = extra
         UuidMixin.__init__(self)
@@ -229,6 +229,37 @@ class GCEForwardingRule(UuidMixin):
             self.id, self.name, self.address)
 
 
+class GCENodeImage(NodeImage):
+    """A GCE Node Image class."""
+    def __init__(self, id, name, driver, extra=None):
+        super(GCENodeImage, self).__init__(id, name, driver, extra=extra)
+
+    def delete(self):
+        """
+        Delete this image
+
+        :return: True if successful
+        :rtype:  ``bool``
+        """
+        return self.driver.ex_delete_image(image=self)
+
+    def deprecate(self, replacement, state):
+        """
+        Deprecate this image
+
+        :param  replacement: Image to use as a replacement
+        :type   replacement: ``str`` or :class: `GCENodeImage`
+
+        :param  state: Deprecation state of this image. Possible values include
+                       \'DELETED\', \'DEPRECATED\' or \'OBSOLETE\'.
+        :type   state: ``str``
+
+        :return: True if successful
+        :rtype:  ``bool``
+        """
+        return self.driver.ex_deprecate_image(self, replacement, state)
+
+
 class GCENetwork(UuidMixin):
     """A GCE Network object class."""
     def __init__(self, id, name, cidr, driver, extra=None):
@@ -241,7 +272,7 @@ class GCENetwork(UuidMixin):
 
     def destroy(self):
         """
-        Destroy this newtwork
+        Destroy this network
 
         :return: True if successful
         :rtype:  ``bool``
@@ -259,7 +290,7 @@ class GCENodeSize(NodeSize):
                  extra=None):
         self.extra = extra
         super(GCENodeSize, self).__init__(id, name, ram, disk, bandwidth,
-                                          price, driver)
+                                          price, driver, extra=extra)
 
 
 class GCEProject(UuidMixin):
@@ -422,7 +453,7 @@ class GCEZone(NodeLocation):
         :return:  A dictionary containing maintenance window info (or None if
                   no maintenance windows are scheduled)
                   The dictionary contains 4 keys with values of type ``str``
-                      - name: The name of the maintence window
+                      - name: The name of the maintenance window
                       - description: Description of the maintenance window
                       - beginTime: RFC3339 Timestamp
                       - endTime: RFC3339 Timestamp
@@ -504,7 +535,7 @@ class GCENodeDriver(NodeDriver):
     }
 
     def __init__(self, user_id, key, datacenter=None, project=None,
-                 auth_type=None, **kwargs):
+                 auth_type=None, scopes=None, **kwargs):
         """
         :param  user_id: The email address (for service accounts) or Client ID
                          (for installed apps) to be used for authentication.
@@ -527,9 +558,14 @@ class GCENodeDriver(NodeDriver):
                              If not supplied, auth_type will be guessed based
                              on value of user_id.
         :type     auth_type: ``str``
+
+        :keyword  scopes: List of authorization URLs. Default is empty and
+                          grants read/write to Compute, Storage, DNS.
+        :type     scopes: ``list``
         """
         self.auth_type = auth_type
         self.project = project
+        self.scopes = scopes
         if not self.project:
             raise ValueError('Project name must be specified using '
                              '"project" keyword.')
@@ -560,7 +596,7 @@ class GCENodeDriver(NodeDriver):
 
     def ex_list_addresses(self, region=None):
         """
-        Return a list of static addreses for a region or all.
+        Return a list of static addresses for a region or all.
 
         :keyword  region: The region to return addresses from. For example:
                           'us-central1'.  If None, will return addresses from
@@ -661,10 +697,9 @@ class GCENodeDriver(NodeDriver):
         :keyword  ex_project: Optional alternate project name.
         :type     ex_project: ``str`` or ``None``
 
-        :return:  List of NodeImage objects
-        :rtype:   ``list`` of :class:`NodeImage`
+        :return:  List of GCENodeImage objects
+        :rtype:   ``list`` of :class:`GCENodeImage`
         """
-        list_images = []
         request = '/global/images'
         if ex_project is None:
             response = self.connection.request(request, method='GET').object
@@ -910,8 +945,8 @@ class GCENodeDriver(NodeDriver):
         :param  name: Name of health check
         :type   name: ``str``
 
-        :keyword  host: Hostname of health check requst.  Defaults to empty and
-                        public IP is used instead.
+        :keyword  host: Hostname of health check request.  Defaults to empty
+                        and public IP is used instead.
         :type     host: ``str``
 
         :keyword  path: The request path for the check.  Defaults to /.
@@ -956,7 +991,8 @@ class GCENodeDriver(NodeDriver):
         return self.ex_get_healthcheck(name)
 
     def ex_create_firewall(self, name, allowed, network='default',
-                           source_ranges=None, source_tags=None):
+                           source_ranges=None, source_tags=None,
+                           target_tags=None):
         """
         Create a firewall on a network.
 
@@ -990,8 +1026,13 @@ class GCENodeDriver(NodeDriver):
                                  ['0.0.0.0/0']
         :type     source_ranges: ``list`` of ``str``
 
-        :keyword  source_tags: A list of instance tags which the rules apply
+        :keyword  source_tags: A list of source instance tags the rules apply
+                               to.
         :type     source_tags: ``list`` of ``str``
+
+        :keyword  target_tags: A list of target instance tags the rules apply
+                               to.
+        :type     target_tags: ``list`` of ``str``
 
         :return:  Firewall object
         :rtype:   :class:`GCEFirewall`
@@ -1008,6 +1049,8 @@ class GCENodeDriver(NodeDriver):
         firewall_data['sourceRanges'] = source_ranges or ['0.0.0.0/0']
         if source_tags is not None:
             firewall_data['sourceTags'] = source_tags
+        if target_tags is not None:
+            firewall_data['targetTags'] = target_tags
 
         request = '/global/firewalls'
 
@@ -1109,7 +1152,7 @@ class GCENodeDriver(NodeDriver):
 
         :param  image: The image to use to create the node (or, if attaching
                        a persistent disk, the image used to create the disk)
-        :type   image: ``str`` or :class:`NodeImage`
+        :type   image: ``str`` or :class:`GCENodeImage`
 
         :keyword  location: The location (zone) to create the node in.
         :type     location: ``str`` or :class:`NodeLocation` or
@@ -1118,7 +1161,7 @@ class GCENodeDriver(NodeDriver):
         :keyword  ex_network: The network to associate with the node.
         :type     ex_network: ``str`` or :class:`GCENetwork`
 
-        :keyword  ex_tags: A list of tags to assiciate with the node.
+        :keyword  ex_tags: A list of tags to associate with the node.
         :type     ex_tags: ``list`` of ``str`` or ``None``
 
         :keyword  ex_metadata: Metadata dictionary for instance.
@@ -1157,6 +1200,10 @@ class GCENodeDriver(NodeDriver):
                                               image=image,
                                               use_existing=use_existing_disk)
 
+        if ex_metadata is not None:
+            ex_metadata = {"items": [{"key": k, "value": v}
+                                     for k, v in ex_metadata.items()]}
+
         request, node_data = self._create_node_req(name, size, image,
                                                    location, ex_network,
                                                    ex_tags, ex_metadata,
@@ -1189,7 +1236,7 @@ class GCENodeDriver(NodeDriver):
         :type   size: ``str`` or :class:`GCENodeSize`
 
         :param  image: The image to use to create the nodes.
-        :type   image: ``str`` or :class:`NodeImage`
+        :type   image: ``str`` or :class:`GCENodeImage`
 
         :param  number: The number of nodes to create.
         :type   number: ``int``
@@ -1372,7 +1419,7 @@ class GCENodeDriver(NodeDriver):
         :type     snapshot: :class:`GCESnapshot` or ``str`` or ``None``
 
         :keyword  image: Image to create disk from.
-        :type     image: :class:`NodeImage` or ``str`` or ``None``
+        :type     image: :class:`GCENodeImage` or ``str`` or ``None``
 
         :keyword  use_existing: If True and a disk with the given name already
                                 exists, return an object for that disk instead
@@ -1489,6 +1536,8 @@ class GCENodeDriver(NodeDriver):
             firewall_data['sourceRanges'] = firewall.source_ranges
         if firewall.source_tags:
             firewall_data['sourceTags'] = firewall.source_tags
+        if firewall.target_tags:
+            firewall_data['targetTags'] = firewall.target_tags
         if firewall.extra['description']:
             firewall_data['description'] = firewall.extra['description']
 
@@ -1517,7 +1566,7 @@ class GCENodeDriver(NodeDriver):
         if not hasattr(node, 'name'):
             node = self.ex_get_node(node, 'all')
 
-        targetpool_data = {'instance': node.extra['selfLink']}
+        targetpool_data = {'instances': [{'instance': node.extra['selfLink']}]}
 
         request = '/regions/%s/targetPools/%s/addInstance' % (
             targetpool.region.name, targetpool.name)
@@ -1571,7 +1620,7 @@ class GCENodeDriver(NodeDriver):
         if not hasattr(node, 'name'):
             node = self.ex_get_node(node, 'all')
 
-        targetpool_data = {'instance': node.extra['selfLink']}
+        targetpool_data = {'instances': [{'instance': node.extra['selfLink']}]}
 
         request = '/regions/%s/targetPools/%s/removeInstance' % (
             targetpool.region.name, targetpool.name)
@@ -1699,7 +1748,7 @@ class GCENodeDriver(NodeDriver):
             on_host_maintenance = on_host_maintenance.upper()
             ohm_values = ['MIGRATE', 'TERMINATE']
             if on_host_maintenance not in ohm_values:
-                raise ValueError('on_host_maintenence must be one of %s' %
+                raise ValueError('on_host_maintenance must be one of %s' %
                                  ','.join(ohm_values))
 
         request = '/zones/%s/instances/%s/setScheduling' % (
@@ -1740,7 +1789,7 @@ class GCENodeDriver(NodeDriver):
         :type   size: ``str`` or :class:`GCENodeSize`
 
         :param  image: The image to use to create the node.
-        :type   image: ``str`` or :class:`NodeImage`
+        :type   image: ``str`` or :class:`GCENodeImage`
 
         :param  script: File path to start-up script
         :type   script: ``str``
@@ -1752,7 +1801,7 @@ class GCENodeDriver(NodeDriver):
         :keyword  ex_network: The network to associate with the node.
         :type     ex_network: ``str`` or :class:`GCENetwork`
 
-        :keyword  ex_tags: A list of tags to assiciate with the node.
+        :keyword  ex_tags: A list of tags to associate with the node.
         :type     ex_tags: ``list`` of ``str`` or ``None``
 
         :return:  A Node object for the new node.
@@ -1838,6 +1887,33 @@ class GCENodeDriver(NodeDriver):
                                       data='ignored')
         return True
 
+    def ex_set_volume_auto_delete(self, volume, node, auto_delete=True):
+        """
+        Sets the auto-delete flag for a volume attached to a node.
+
+        :param  volume: Volume object to auto-delete
+        :type   volume: :class:`StorageVolume`
+
+        :param   ex_node: Node object to auto-delete volume from
+        :type    ex_node: :class:`Node`
+
+        :keyword auto_delete: Flag to set for the auto-delete value
+        :type    auto_delete: ``bool`` (default True)
+
+        :return:  True if successfull
+        :rtype:   ``bool``
+        """
+        request = '/zones/%s/instances/%s/setDiskAutoDelete' % (
+            node.extra['zone'].name, node.name
+        )
+        delete_params = {
+            'deviceName': volume,
+            'autoDelete': auto_delete,
+        }
+        self.connection.async_request(request, method='POST',
+                                      params=delete_params)
+        return True
+
     def ex_destroy_address(self, address):
         """
         Destroy a static address.
@@ -1852,6 +1928,66 @@ class GCENodeDriver(NodeDriver):
                                                 address.name)
 
         self.connection.async_request(request, method='DELETE')
+        return True
+
+    def ex_delete_image(self, image):
+        """
+        Delete a specific image resource.
+
+        :param  image: Image object to delete
+        :type   image: ``str`` or :class:`GCENodeImage`
+
+        :return: True if successfull
+        :rtype:  ``bool``
+        """
+        if not hasattr(image, 'name'):
+            image = self.ex_get_image(image)
+
+        request = '/global/images/%s' % (image.name)
+        self.connection.async_request(request, method='DELETE')
+        return True
+
+    def ex_deprecate_image(self, image, replacement, state=None):
+        """
+        Deprecate a specific image resource.
+
+        :param  image: Image object to deprecate
+        :type   image: ``str`` or :class: `GCENodeImage`
+
+        :param  replacement: Image object to use as a replacement
+        :type   replacement: ``str`` or :class: `GCENodeImage`
+
+        :param  state: State of the image
+        :type   state: ``str``
+
+        :return: True if successfull
+        :rtype:  ``bool``
+        """
+        if not hasattr(image, 'name'):
+            image = self.ex_get_image(image)
+
+        if not hasattr(replacement, 'name'):
+            replacement = self.ex_get_image(replacement)
+
+        if state is None:
+            state = 'DEPRECATED'
+
+        possible_states = ['DELETED', 'DEPRECATED', 'OBSOLETE']
+
+        if state not in possible_states:
+            raise ValueError('state must be one of %s'
+                             % ','.join(possible_states))
+
+        image_data = {
+            'state': state,
+            'replacement': replacement.extra['selfLink'],
+        }
+
+        request = '/global/images/%s/deprecate' % (image.name)
+
+        self.connection.request(
+            request, method='POST', data=image_data).object
+
         return True
 
     def ex_destroy_healthcheck(self, healthcheck):
@@ -2077,7 +2213,7 @@ class GCENodeDriver(NodeDriver):
         :param  snapshot: Snapshot object to destroy
         :type   snapshot: :class:`GCESnapshot`
 
-        :return:  True if successfull
+        :return:  True if successful
         :rtype:   ``bool``
         """
         request = '/global/snapshots/%s' % (snapshot.name)
@@ -2154,15 +2290,15 @@ class GCENodeDriver(NodeDriver):
 
     def ex_get_image(self, partial_name):
         """
-        Return an NodeImage object based on the name or link provided.
+        Return an GCENodeImage object based on the name or link provided.
 
         :param  partial_name: The name, partial name, or full path of a GCE
                               image.
         :type   partial_name: ``str``
 
-        :return:  NodeImage object based on provided information or None if an
-                  image with that name is not found.
-        :rtype:   :class:`NodeImage` or ``None``
+        :return:  GCENodeImage object based on provided information or None if
+                  an image with that name is not found.
+        :rtype:   :class:`GCENodeImage` or ``None``
         """
         if partial_name.startswith('https://'):
             response = self.connection.request(partial_name, method='GET')
@@ -2173,6 +2309,8 @@ class GCENodeDriver(NodeDriver):
                 image = self._match_images('debian-cloud', partial_name)
             elif partial_name.startswith('centos'):
                 image = self._match_images('centos-cloud', partial_name)
+            elif partial_name.startswith('container-vm'):
+                image = self._match_images('google-containers', partial_name)
 
         return image
 
@@ -2346,9 +2484,46 @@ class GCENodeDriver(NodeDriver):
             return None
         return self._to_zone(response)
 
+    def ex_copy_image(self, name, url, description=None):
+        """
+        Copy an image to your image collection.
+
+        :param  name: The name of the image
+        :type   name: ``str``
+
+        :param  url: The URL to the image. The URL can start with `gs://`
+        :param  url: ``str``
+
+        :param  description: The description of the image
+        :type   description: ``str``
+
+        :return:  NodeImage object based on provided information or None if an
+                  image with that name is not found.
+        :rtype:   :class:`NodeImage` or ``None``
+        """
+
+        # the URL for an image can start with gs://
+        if url.startswith('gs://'):
+            url = url.replace('gs://', 'https://storage.googleapis.com/', 1)
+
+        image_data = {
+            'name': name,
+            'description': description,
+            'sourceType': 'RAW',
+            'rawDisk': {
+                'source': url,
+            },
+        }
+
+        request = '/global/images'
+        self.connection.async_request(request, method='POST',
+                                      data=image_data)
+        return self.ex_get_image(name)
+
     def _ex_connection_class_kwargs(self):
         return {'auth_type': self.auth_type,
-                'project': self.project}
+                'project': self.project,
+                'scopes': self.scopes}
 
     def _catch_error(self, ignore_errors=False):
         """
@@ -2467,9 +2642,9 @@ class GCENodeDriver(NodeDriver):
                               image.
         :type   partial_name: ``str``
 
-        :return:  The latest image object that maches the partial name or None
+        :return:  The latest image object that matches the partial name or None
                   if no matching image is found.
-        :rtype:   :class:`NodeImage` or ``None``
+        :rtype:   :class:`GCENodeImage` or ``None``
         """
         project_images = self.list_images(project)
         partial_match = []
@@ -2527,7 +2702,7 @@ class GCENodeDriver(NodeDriver):
                          external_ip='ephemeral'):
         """
         Returns a request and body to create a new node.  This is a helper
-        method to suppor both :class:`create_node` and
+        method to support both :class:`create_node` and
         :class:`ex_create_multiple_nodes`.
 
         :param  name: The name of the node to create.
@@ -2538,7 +2713,7 @@ class GCENodeDriver(NodeDriver):
 
         :param  image: The image to use to create the node (or, if using a
                        persistent disk, the image the disk was created from).
-        :type   image: :class:`NodeImage`
+        :type   image: :class:`GCENodeImage`
 
         :param  location: The location (zone) to create the node in.
         :type   location: :class:`NodeLocation` or :class:`GCEZone`
@@ -2546,7 +2721,7 @@ class GCENodeDriver(NodeDriver):
         :param  network: The network to associate with the node.
         :type   network: :class:`GCENetwork`
 
-        :keyword  tags: A list of tags to assiciate with the node.
+        :keyword  tags: A list of tags to associate with the node.
         :type     tags: ``list`` of ``str``
 
         :keyword  metadata: Metadata dictionary for instance.
@@ -2755,9 +2930,9 @@ class GCENodeDriver(NodeDriver):
         :type     snapshot: :class:`GCESnapshot` or ``str`` or ``None``
 
         :keyword  image: Image to create disk from.
-        :type     image: :class:`NodeImage` or ``str`` or ``None``
+        :type     image: :class:`GCENodeImage` or ``str`` or ``None``
 
-        :return:  Tuple containg the request string, the data dictionary and
+        :return:  Tuple containing the request string, the data dictionary and
                   the URL parameters
         :rtype:   ``tuple``
         """
@@ -2855,11 +3030,13 @@ class GCENodeDriver(NodeDriver):
         network = self.ex_get_network(extra['network_name'])
         source_ranges = firewall.get('sourceRanges')
         source_tags = firewall.get('sourceTags')
+        target_tags = firewall.get('targetTags')
 
         return GCEFirewall(id=firewall['id'], name=firewall['name'],
                            allowed=firewall.get('allowed'), network=network,
                            source_ranges=source_ranges,
                            source_tags=source_tags,
+                           target_tags=target_tags,
                            driver=self, extra=extra)
 
     def _to_forwarding_rule(self, forwarding_rule):
@@ -2918,15 +3095,17 @@ class GCENodeDriver(NodeDriver):
         :type   image: ``dict``
 
         :return: Image object
-        :rtype: :class:`NodeImage`
+        :rtype: :class:`GCENodeImage`
         """
         extra = {}
         extra['preferredKernel'] = image.get('preferredKernel', None)
         extra['description'] = image.get('description', None)
         extra['creationTimestamp'] = image.get('creationTimestamp')
         extra['selfLink'] = image.get('selfLink')
-        return NodeImage(id=image['id'], name=image['name'], driver=self,
-                         extra=extra)
+        extra['deprecated'] = image.get('deprecated', None)
+
+        return GCENodeImage(id=image['id'], name=image['name'], driver=self,
+                            extra=extra)
 
     def _to_node_location(self, location):
         """
@@ -2969,8 +3148,8 @@ class GCENodeDriver(NodeDriver):
         extra['metadata'] = node.get('metadata', {})
         extra['tags_fingerprint'] = node['tags']['fingerprint']
         extra['scheduling'] = node.get('scheduling', {})
+        extra['deprecated'] = True if node.get('deprecated', None) else False
 
-        extra['boot_disk'] = None
         for disk in extra['disks']:
             if disk.get('boot') and disk.get('type') == 'PERSISTENT':
                 bd = self._get_components_from_path(disk['source'])
