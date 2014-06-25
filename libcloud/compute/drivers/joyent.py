@@ -18,11 +18,20 @@ Joyent Cloud (http://www.joyentcloud.com) driver.
 """
 
 import base64
+import datetime
 
 try:
     import simplejson as json
 except:
     import json
+
+try:
+    from Crypto.PublicKey import RSA
+    from Crypto.Signature import PKCS1_v1_5
+    from Crypto.Hash import SHA256
+    pycrypto_available = True
+except ImportError:
+    pycrypto_available = False
 
 from libcloud.utils.py3 import httplib
 from libcloud.utils.py3 import b
@@ -35,7 +44,7 @@ from libcloud.compute.base import Node, NodeDriver, NodeImage, NodeSize
 from libcloud.utils.networking import is_private_subnet
 
 API_HOST_SUFFIX = '.api.joyentcloud.com'
-API_VERSION = '~6.5'
+API_VERSION = '~7.0'
 
 
 NODE_STATE_MAP = {
@@ -48,6 +57,14 @@ NODE_STATE_MAP = {
 
 VALID_REGIONS = ['us-east-1', 'us-west-1', 'us-sw-1', 'eu-ams-1']
 DEFAULT_REGION = 'us-east-1'
+
+
+class JoyentException(Exception):
+    def __str__(self):
+        return self.args[0]
+
+    def __repr__(self):
+        return "<JoyentException '%s'>" % (self.args[0])
 
 
 class JoyentResponse(JsonResponse):
@@ -77,14 +94,48 @@ class JoyentConnection(ConnectionUserAndKey):
 
     allow_insecure = False
 
+    def __init__(self, user_id, key, secure=True,
+                 host=None, port=None, url=None, timeout=None, pkey_path=None):
+        """
+
+        :param    user_id:    Username used to login to Joyent SmartDataCenter
+        :type     user_id:    ``str``
+
+        :param    key:        Name of a public RSA key uploaded to the user account
+        :type     key:        ``str``
+
+        :param    pkey_path   Local file path to a RSA Private key for the corresponding public key
+                                which will be used to sign requests
+        :tpye     pkey_path   ``str``
+
+        """
+        super(JoyentConnection, self).__init__(user_id, key, secure=secure,
+                                               host=host, port=port,
+                                               url=url, timeout=timeout)
+
+        if pkey_path is None:
+            raise JoyentException("Joyent CloudAPI requires an SSH RSA key for signing requests")
+
+        with open(pkey_path, "r") as key:
+            self.pkey = key.read()
+
     def add_default_headers(self, headers):
         headers['Accept'] = 'application/json'
         headers['Content-Type'] = 'application/json; charset=UTF-8'
         headers['X-Api-Version'] = API_VERSION
 
-        user_b64 = base64.b64encode(b('%s:%s' % (self.user_id, self.key)))
-        headers['Authorization'] = 'Basic %s' % (user_b64.decode('utf-8'))
+        headers['Date'] = datetime.datetime.utcnow().strftime("%a, %d %h %Y %H:%M:%S GMT")
+        signature = self._generate_header_signature(headers['Date'])
+        headers['Authorization'] = 'Signature keyId="/%s/keys/%s",algorithm="rsa-sha256" %s' % (self.user_id, self.key, signature)
         return headers
+
+    def _generate_header_signature(self, data_to_sign):
+        rsakey = RSA.importKey(self.pkey)
+        signer = PKCS1_v1_5.new(rsakey)
+        digest = SHA256.new()
+        digest.update(data_to_sign)
+        signature = signer.sign(digest)
+        return base64.b64encode(signature)
 
 
 class JoyentNodeDriver(NodeDriver):
@@ -109,6 +160,8 @@ class JoyentNodeDriver(NodeDriver):
             raise LibcloudError(msg % (region,
                                 ', '.join(VALID_REGIONS)), driver=self)
 
+        self.pkey_path = kwargs.get('pkey_path', None)
+
         super(JoyentNodeDriver, self).__init__(key=key, secret=secret,
                                                secure=secure, host=host,
                                                port=port, region=region,
@@ -120,8 +173,11 @@ class JoyentNodeDriver(NodeDriver):
 
         images = []
         for value in result:
-            extra = {'type': value['type'], 'urn': value['urn'],
-                     'os': value['os'], 'default': value['default']}
+            extra = {'type': value['type'], 'os': value['os']}
+
+            if 'urn' in value:
+                extra['urn'] = value['urn']
+
             image = NodeImage(id=value['id'], name=value['name'],
                               driver=self.connection.driver, extra=extra)
             images.append(image)
@@ -220,3 +276,15 @@ class JoyentNodeDriver(NodeDriver):
                     public_ips=public_ips, private_ips=private_ips,
                     driver=self.connection.driver, extra=extra)
         return node
+
+    def _ex_connection_class_kwargs(self):
+        """
+        Return extra connection keyword arguments which are passed to the
+        Connection class constructor.
+        """
+        kwargs = {}
+
+        if self.pkey_path is not None:
+            kwargs['pkey_path'] = self.pkey_path
+
+        return kwargs
