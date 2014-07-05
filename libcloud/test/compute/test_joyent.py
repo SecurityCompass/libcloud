@@ -15,6 +15,14 @@
 
 import sys
 
+try:
+    from Crypto.PublicKey import RSA
+    from Crypto.Signature import PKCS1_v1_5
+    from Crypto.Hash import SHA256
+    pycrypto_available = True
+except ImportError:
+    pycrypto_available = False
+
 from libcloud.utils.py3 import httplib
 from libcloud.common.types import LibcloudError
 from libcloud.compute.base import NodeState
@@ -70,7 +78,7 @@ class JoyentTestCase(unittest.TestCase):
 
         self.assertEqual(images[0].name, 'nodejs')
 
-    def test_list_nodes_with_and_without_credentials(self):
+    def test_list_nodes_without_credentials(self):
         nodes = self.driver.list_nodes()
         self.assertEqual(len(nodes), 2)
 
@@ -84,6 +92,15 @@ class JoyentTestCase(unittest.TestCase):
         self.assertEqual(node.private_ips[0], '10.112.1.131')
         self.assertEqual(node.state, NodeState.RUNNING)
         self.assertEqual(node.extra['password'], 'abc')
+
+    def test_list_nodes_with_credentials(self):
+        nodes = self.driver.list_nodes()
+        self.assertEqual(len(nodes), 2)
+
+        node = nodes[0]
+        self.assertEqual(node.public_ips[0], '165.225.129.129')
+        self.assertEqual(node.private_ips[0], '10.112.1.130')
+        self.assertEqual(node.state, NodeState.RUNNING)
 
     def test_create_node(self):
         image = self.driver.list_images()[0]
@@ -117,6 +134,25 @@ class JoyentHttp(MockHttp):
             body = self.fixtures.load('my_machines.json')
         elif method == 'POST':
             body = self.fixtures.load('my_machines_create.json')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _my_machines_AUTHORIZED(self, method, url, body, headers):
+        date = headers['Date']
+        auth_header = headers['Authorization']
+
+        signature = auth_header.split()[-1]
+
+        rsakey = RSA.importKey(pub_key)
+        signer = PKCS1_v1_5.new(rsakey)
+        digest = SHA256.new()
+        # Assumes the data is base64 encoded to begin with
+        digest.update(date)
+        if signer.verify(digest, b64decode(signature)):
+            return True
+        return False
+
+        if method == 'GET':
+            body = self.fixtures.load('my_machines.json')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
     def _my_machines_2fb67f5f_53f2_40ab_9d99_b9ff68cfb2ab(self, method, url,
