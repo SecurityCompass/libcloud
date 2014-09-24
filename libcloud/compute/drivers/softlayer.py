@@ -282,6 +282,8 @@ class SoftLayerNodeDriver(NodeDriver):
         :type       ex_keyname: ``str``
         :keyword    ex_image_template: e.g. 17128
         :type       ex_image_template: ``int``
+        :keyword    ex_image_template: An identifier for an Image Template e.g. e65d5db7-121a-4c14-9e63-f5055f392970
+        :type       ex_image_template: ``str``
         """
         name = kwargs['name']
         os = 'DEBIAN_LATEST'

@@ -253,6 +253,7 @@ class SoftLayerMockHttp(MockHttp):
     def _xmlrpc_v3_SoftLayer_Security_Ssh_Key_deleteObject(
             self, method, url, body, headers):
         body = self.fixtures.load('v3__SoftLayer_Security_Ssh_Key_deleteObject.xml')
+
     def _xmlrpc_v3_SoftLayer_Account_getPrivateBlockDeviceTemplate(
             self, method, url, body, headers):
         body = self.fixtures.load(
