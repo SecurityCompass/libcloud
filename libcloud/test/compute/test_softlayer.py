@@ -64,6 +64,11 @@ class SoftLayerTests(unittest.TestCase):
         image = images[0]
         self.assertEqual(image.id, 'CENTOS_6_64')
 
+    def test_list_private_images(self):
+        images = self.driver.list_images()
+        image = images[-1]
+        self.assertEqual(image.id, 'e65d5db7-121a-4c14-9e63-f5055f392970')
+
     def test_list_sizes(self):
         sizes = self.driver.list_sizes()
         self.assertEqual(len(sizes), 13)
@@ -186,6 +191,12 @@ class SoftLayerMockHttp(MockHttp):
     def _xmlrpc_v3_SoftLayer_Virtual_Guest_deleteObject(
             self, method, url, body, headers):
         body = self.fixtures.load('empty.xml')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _xmlrpc_v3_SoftLayer_Account_getPrivateBlockDeviceTemplate(
+            self, method, url, body, headers):
+        body = self.fixtures.load(
+            'v3__SoftLayer_Account_getPrivateBlockDeviceTemplate.xml')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
 
