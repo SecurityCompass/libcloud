@@ -335,6 +335,37 @@ INSTANCE_TYPES = {
         'ram': 244000,
         'disk': 320,  # x2
         'bandwidth': None
+    },
+    't2.micro': {
+        'id': 't2.micro',
+        'name': 'Burstable Performance Micro Instance',
+        'ram': 1024,
+        'disk': 0,  # EBS Only
+        'bandwidth': None,
+        'extra': {
+            'cpu': 1
+        }
+    },
+    # Burstable Performance General Purpose
+    't2.small': {
+        'id': 't2.small',
+        'name': 'Burstable Performance Small Instance',
+        'ram': 2048,
+        'disk': 0,  # EBS Only
+        'bandwidth': None,
+        'extra': {
+            'cpu': 11
+        }
+    },
+    't2.medium': {
+        'id': 't2.medium',
+        'name': 'Burstable Performance Medium Instance',
+        'ram': 4028,
+        'disk': 0,  # EBS Only
+        'bandwidth': None,
+        'extra': {
+            'cpu': 2
+        }
     }
 }
 
@@ -377,7 +408,10 @@ REGION_DETAILS = {
             'r3.xlarge',
             'r3.2xlarge',
             'r3.4xlarge',
-            'r3.8xlarge'
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # US West (Northern California) Region
@@ -453,7 +487,10 @@ REGION_DETAILS = {
             'r3.xlarge',
             'r3.2xlarge',
             'r3.4xlarge',
-            'r3.8xlarge'
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # EU (Ireland) Region
@@ -492,7 +529,10 @@ REGION_DETAILS = {
             'r3.xlarge',
             'r3.2xlarge',
             'r3.4xlarge',
-            'r3.8xlarge'
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # Asia Pacific (Singapore) Region
@@ -525,6 +565,9 @@ REGION_DETAILS = {
             'i2.2xlarge',
             'i2.4xlarge',
             'i2.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # Asia Pacific (Tokyo) Region
@@ -562,7 +605,10 @@ REGION_DETAILS = {
             'r3.xlarge',
             'r3.2xlarge',
             'r3.4xlarge',
-            'r3.8xlarge'
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # South America (Sao Paulo) Region
@@ -584,7 +630,10 @@ REGION_DETAILS = {
             'm3.xlarge',
             'm3.2xlarge',
             'c1.medium',
-            'c1.xlarge'
+            'c1.xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     # Asia Pacific (Sydney) Region
@@ -621,7 +670,51 @@ REGION_DETAILS = {
             'r3.xlarge',
             'r3.2xlarge',
             'r3.4xlarge',
-            'r3.8xlarge'
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
+        ]
+    },
+    'us-gov-west-1': {
+        'endpoint': 'ec2.us-gov-west-1.amazonaws.com',
+        'api_name': 'ec2_us_govwest',
+        'country': 'US',
+        'instance_types': [
+            't1.micro',
+            'm1.small',
+            'm1.medium',
+            'm1.large',
+            'm1.xlarge',
+            'm2.xlarge',
+            'm2.2xlarge',
+            'm2.4xlarge',
+            'm3.medium',
+            'm3.large',
+            'm3.xlarge',
+            'm3.2xlarge',
+            'c1.medium',
+            'c1.xlarge',
+            'g2.2xlarge',
+            'c3.large',
+            'c3.xlarge',
+            'c3.2xlarge',
+            'c3.4xlarge',
+            'c3.8xlarge',
+            'hs1.4xlarge',
+            'hs1.8xlarge',
+            'i2.xlarge',
+            'i2.2xlarge',
+            'i2.4xlarge',
+            'i2.8xlarge',
+            'r3.large',
+            'r3.xlarge',
+            'r3.2xlarge',
+            'r3.4xlarge',
+            'r3.8xlarge',
+            't2.micro',
+            't2.small',
+            't2.medium'
         ]
     },
     'nimbus': {
@@ -1879,7 +1972,7 @@ class BaseEC2NodeDriver(NodeDriver):
         'terminated': NodeState.TERMINATED
     }
 
-    def list_nodes(self, ex_node_ids=None):
+    def list_nodes(self, ex_node_ids=None, ex_filters=None):
         """
         List all nodes
 
@@ -1890,21 +1983,34 @@ class BaseEC2NodeDriver(NodeDriver):
         :param      ex_node_ids: List of ``node.id``
         :type       ex_node_ids: ``list`` of ``str``
 
+        :param      ex_filters: The filters so that the response includes
+                             information for only certain nodes.
+        :type       ex_filters: ``dict``
+
         :rtype: ``list`` of :class:`Node`
         """
+
         params = {'Action': 'DescribeInstances'}
+
         if ex_node_ids:
             params.update(self._pathlist('InstanceId', ex_node_ids))
+
+        if ex_filters:
+            params.update(self._build_filters(ex_filters))
+
         elem = self.connection.request(self.path, params=params).object
+
         nodes = []
         for rs in findall(element=elem, xpath='reservationSet/item',
                           namespace=NAMESPACE):
             nodes += self._to_nodes(rs, 'instancesSet/item')
 
         nodes_elastic_ips_mappings = self.ex_describe_addresses(nodes)
+
         for node in nodes:
             ips = nodes_elastic_ips_mappings[node.id]
             node.public_ips.extend(ips)
+
         return nodes
 
     def list_sizes(self, location=None):
@@ -2002,10 +2108,9 @@ class BaseEC2NodeDriver(NodeDriver):
             'Action': 'DescribeVolumes',
         }
         if node:
-            params.update({
-                'Filter.1.Name': 'attachment.instance-id',
-                'Filter.1.Value': node.id,
-            })
+            filters = {'attachment.instance-id': node.id}
+            params.update(self._build_filters(filters))
+
         response = self.connection.request(self.path, params=params).object
         volumes = [self._to_volume(el) for el in response.findall(
             fixxpath(xpath='volumeSet/item', namespace=NAMESPACE))
@@ -2175,7 +2280,7 @@ class BaseEC2NodeDriver(NodeDriver):
                      is io1.
         :type iops: ``int``
         """
-        valid_volume_types = ['standard', 'io1', 'g2']
+        valid_volume_types = ['standard', 'io1', 'gp2']
 
         params = {
             'Action': 'CreateVolume',
@@ -2468,7 +2573,7 @@ class BaseEC2NodeDriver(NodeDriver):
     def ex_register_image(self, name, description=None, architecture=None,
                           image_location=None, root_device_name=None,
                           block_device_mapping=None, kernel_id=None,
-                          ramdisk_id=None):
+                          ramdisk_id=None, virtualization_type=None):
         """
         Registers an Amazon Machine Image based off of an EBS-backed instance.
         Can also be used to create images from snapshots. More information
@@ -2503,6 +2608,11 @@ class BaseEC2NodeDriver(NodeDriver):
         :param      ramdisk_id: RAM disk for AMI (optional)
         :type       ramdisk_id: ``str``
 
+        :param      virtualization_type: The type of virtualization for the
+                                         AMI you are registering, paravirt
+                                         or hvm (optional)
+        :type       virtualization_type: ``str``
+
         :rtype:     :class:`NodeImage`
         """
 
@@ -2530,6 +2640,9 @@ class BaseEC2NodeDriver(NodeDriver):
 
         if ramdisk_id is not None:
             params['RamDiskId'] = ramdisk_id
+
+        if virtualization_type is not None:
+            params['VirtualizationType'] = virtualization_type
 
         image = self._to_image(
             self.connection.request(self.path, params=params).object
@@ -3144,12 +3257,11 @@ class BaseEC2NodeDriver(NodeDriver):
         """
         params = {'Action': 'DescribeAvailabilityZones'}
 
+        filters = {'region-name': self.region_name}
         if only_available:
-            params.update({'Filter.0.Name': 'state'})
-            params.update({'Filter.0.Value.0': 'available'})
+            filters['state'] = 'available'
 
-        params.update({'Filter.1.Name': 'region-name'})
-        params.update({'Filter.1.Value.0': self.region_name})
+        params.update(self._build_filters(filters))
 
         result = self.connection.request(self.path,
                                          params=params.copy()).object
@@ -3184,12 +3296,14 @@ class BaseEC2NodeDriver(NodeDriver):
         :return: dict Node tags
         :rtype: ``dict``
         """
-        params = {'Action': 'DescribeTags',
-                  'Filter.0.Name': 'resource-id',
-                  'Filter.0.Value.0': resource.id,
-                  'Filter.1.Name': 'resource-type',
-                  'Filter.1.Value.0': 'instance',
-                  }
+        params = {'Action': 'DescribeTags'}
+
+        filters = {
+            'resource-id': resource.id,
+            'resource-type': 'instance'
+        }
+
+        params.update(self._build_filters(filters))
 
         result = self.connection.request(self.path, params=params).object
 
@@ -3477,8 +3591,8 @@ class BaseEC2NodeDriver(NodeDriver):
         """
         Create a network interface within a VPC subnet.
 
-        :param      node: EC2NetworkSubnet instance
-        :type       node: :class:`EC2NetworkSubnet`
+        :param      subnet: EC2NetworkSubnet instance
+        :type       subnet: :class:`EC2NetworkSubnet`
 
         :param      name:  Optional name of the interface
         :type       name:  ``str``
@@ -3617,8 +3731,8 @@ class BaseEC2NodeDriver(NodeDriver):
         """
         Modify image attributes.
 
-        :param      node: Node instance
-        :type       node: :class:`Node`
+        :param      image: NodeImage instance
+        :type       image: :class:`NodeImage`
 
         :param      attributes: Dictionary with node attributes
         :type       attributes: ``dict``
@@ -3720,7 +3834,12 @@ class BaseEC2NodeDriver(NodeDriver):
                                   namespace=NAMESPACE)
 
         timestamp = parse_date(timestamp)
-        output = base64.b64decode(b(encoded_string)).decode('utf-8')
+
+        if encoded_string:
+            output = base64.b64decode(b(encoded_string)).decode('utf-8')
+        else:
+            # No console output
+            output = None
 
         return {'instance_id': node.id,
                 'timestamp': timestamp,
@@ -5034,10 +5153,8 @@ class BaseEC2NodeDriver(NodeDriver):
         """
         Add instance filter to the provided params dictionary.
         """
-        params.update({
-            'Filter.0.Name': 'instance-id',
-            'Filter.0.Value.0': node.id
-        })
+        filters = {'instance-id': node.id}
+        params.update(self._build_filters(filters))
 
         return params
 

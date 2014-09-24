@@ -910,7 +910,7 @@ class GCENodeDriver(NodeDriver):
         list_zones = [self._to_zone(z) for z in response['items']]
         return list_zones
 
-    def ex_create_address(self, name, region=None):
+    def ex_create_address(self, name, region=None, address=None):
         """
         Create a static address in a region.
 
@@ -919,6 +919,10 @@ class GCENodeDriver(NodeDriver):
 
         :keyword  region: Name of region for the address (e.g. 'us-central1')
         :type     region: ``str`` or :class:`GCERegion`
+
+        :keyword  address: Ephemeral IP address to promote to a static one
+                           (e.g. 'xxx.xxx.xxx.xxx')
+        :type     address: ``str`` or ``None``
 
         :return:  Static Address object
         :rtype:   :class:`GCEAddress`
@@ -930,6 +934,8 @@ class GCENodeDriver(NodeDriver):
             raise ValueError('REGION_NOT_SPECIFIED',
                              'Region must be provided for an address')
         address_data = {'name': name}
+        if address:
+            address_data['address'] = address
         request = '/regions/%s/addresses' % (region.name)
         self.connection.async_request(request, method='POST',
                                       data=address_data)
@@ -938,7 +944,8 @@ class GCENodeDriver(NodeDriver):
     def ex_create_healthcheck(self, name, host=None, path=None, port=None,
                               interval=None, timeout=None,
                               unhealthy_threshold=None,
-                              healthy_threshold=None):
+                              healthy_threshold=None,
+                              description=None):
         """
         Create an Http Health Check.
 
@@ -969,6 +976,9 @@ class GCENodeDriver(NodeDriver):
                                      healthy.  Defaults to 2.
         :type     healthy_threshold: ``int``
 
+        :keyword  description: The description of the check.  Defaults to None.
+        :type     description: ``str`` or ``None``
+
         :return:  Health Check object
         :rtype:   :class:`GCEHealthCheck`
         """
@@ -976,6 +986,8 @@ class GCENodeDriver(NodeDriver):
         hc_data['name'] = name
         if host:
             hc_data['host'] = host
+        if description:
+            hc_data['description'] = description
         # As of right now, the 'default' values aren't getting set when called
         # through the API, so set them explicitly
         hc_data['requestPath'] = path or '/'
@@ -1046,7 +1058,9 @@ class GCENodeDriver(NodeDriver):
         firewall_data['name'] = name
         firewall_data['allowed'] = allowed
         firewall_data['network'] = nw.extra['selfLink']
-        firewall_data['sourceRanges'] = source_ranges or ['0.0.0.0/0']
+        if source_ranges is None:
+            source_ranges = ['0.0.0.0/0']
+        firewall_data['sourceRanges'] = source_ranges
         if source_tags is not None:
             firewall_data['sourceTags'] = source_tags
         if target_tags is not None:
@@ -1060,7 +1074,7 @@ class GCENodeDriver(NodeDriver):
 
     def ex_create_forwarding_rule(self, name, targetpool, region=None,
                                   protocol='tcp', port_range=None,
-                                  address=None):
+                                  address=None, description=None):
         """
         Create a forwarding rule.
 
@@ -1085,6 +1099,10 @@ class GCENodeDriver(NodeDriver):
                            in same region.
         :type     address: ``str`` or :class:`GCEAddress`
 
+        :keyword  description: The description of the forwarding rule.
+                               Defaults to None.
+        :type     description: ``str`` or ``None``
+
         :return:  Forwarding Rule object
         :rtype:   :class:`GCEForwardingRule`
         """
@@ -1098,13 +1116,15 @@ class GCENodeDriver(NodeDriver):
         forwarding_rule_data['name'] = name
         forwarding_rule_data['region'] = region.extra['selfLink']
         forwarding_rule_data['target'] = targetpool.extra['selfLink']
-        forwarding_rule_data['protocol'] = protocol.upper()
+        forwarding_rule_data['IPProtocol'] = protocol.upper()
         if address:
             if not hasattr(address, 'name'):
                 address = self.ex_get_address(address, region)
-            forwarding_rule_data['IPAddress'] = address.extra['selfLink']
+            forwarding_rule_data['IPAddress'] = address.address
         if port_range:
             forwarding_rule_data['portRange'] = port_range
+        if description:
+            forwarding_rule_data['description'] = description
 
         request = '/regions/%s/forwardingRules' % (region.name)
 
@@ -1112,6 +1132,67 @@ class GCENodeDriver(NodeDriver):
                                       data=forwarding_rule_data)
 
         return self.ex_get_forwarding_rule(name)
+
+    def ex_create_image(self, name, volume, description=None,
+                        use_existing=True, wait_for_completion=True):
+        """
+        Create an image from the provided volume.
+
+        :param  name: The name of the image to create.
+        :type   name: ``str``
+
+        :param  volume: The volume to use to create the image, or the
+                        Google Cloud Storage URI
+        :type   volume: ``str`` or :class:`StorageVolume`
+
+        :keyword    description: Description of the new Image
+        :type       description: ``str``
+
+        :keyword  use_existing: If True and an image with the given name
+                                already exists, return an object for that
+                                image instead of attempting to create
+                                a new image.
+        :type     use_existing: ``bool``
+
+        :keyword  wait_for_completion: If True, wait until the new image is
+                                       created before returning a new NodeImage
+                                       Otherwise, return a new NodeImage
+                                       instance, and let the user track the
+                                       creation progress
+        :type     wait_for_completion: ``bool``
+
+        :return:    A GCENodeImage object for the new image
+        :rtype:     :class:`GCENodeImage`
+
+        """
+        image_data = {}
+        image_data['name'] = name
+        image_data['description'] = description
+        if isinstance(volume, StorageVolume):
+            image_data['sourceDisk'] = volume.extra['selfLink']
+            image_data['zone'] = volume.extra['zone'].name
+        elif isinstance(volume, str) and \
+                volume.startswith('https://') and volume.endswith('tar.gz'):
+            image_data['rawDisk'] = {'source': volume, 'containerType': 'TAR'}
+        else:
+            raise ValueError('Source must be instance of StorageVolume or URI')
+
+        request = '/global/images'
+
+        try:
+            if wait_for_completion:
+                self.connection.async_request(request, method='POST',
+                                              data=image_data)
+            else:
+                self.connection.request(request, method='POST',
+                                        data=image_data)
+
+        except ResourceExistsError:
+            e = sys.exc_info()[1]
+            if not use_existing:
+                raise e
+
+        return self.ex_get_image(name)
 
     def ex_create_network(self, name, cidr):
         """
@@ -1140,7 +1221,8 @@ class GCENodeDriver(NodeDriver):
     def create_node(self, name, size, image, location=None,
                     ex_network='default', ex_tags=None, ex_metadata=None,
                     ex_boot_disk=None, use_existing_disk=True,
-                    external_ip='ephemeral'):
+                    external_ip='ephemeral', ex_disk_type='pd-standard',
+                    ex_disk_auto_delete=True):
         """
         Create a new node and return a node object for the node.
 
@@ -1182,6 +1264,15 @@ class GCENodeDriver(NodeDriver):
                                a GCEAddress object should be passed in.
         :type     external_ip: :class:`GCEAddress` or ``str`` or None
 
+        :keyword  ex_disk_type: Specify a pd-standard (default) disk or pd-ssd
+                                for an SSD disk.
+        :type     ex_disk_type: ``str``
+
+        :keyword  ex_disk_auto_delete: Indicate that the boot disk should be
+                                       deleted when the Node is deleted. Set to
+                                       True by default.
+        :type     ex_disk_auto_delete: ``bool``
+
         :return:  A Node object for the new node.
         :rtype:   :class:`Node`
         """
@@ -1198,16 +1289,33 @@ class GCENodeDriver(NodeDriver):
         if not ex_boot_disk:
             ex_boot_disk = self.create_volume(None, name, location=location,
                                               image=image,
-                                              use_existing=use_existing_disk)
+                                              use_existing=use_existing_disk,
+                                              ex_disk_type=ex_disk_type)
 
-        if ex_metadata is not None:
-            ex_metadata = {"items": [{"key": k, "value": v}
-                                     for k, v in ex_metadata.items()]}
+        if not ex_metadata:
+            ex_metadata = None
+        elif not isinstance(ex_metadata, dict):
+            raise ValueError('metadata field is not a dictionnary.')
+        else:
+            if 'items' not in ex_metadata:
+                # The expected GCE format is odd:
+                # items: [{'value': '1', 'key': 'one'},
+                #        {'value': '2', 'key': 'two'},
+                #        {'value': 'N', 'key': 'N'}]
+                # So the only real key is items, and the values are tuples
+                # Since arbitrary values are fine, we only check for the key.
+                # If missing, we prefix it to the items.
+                items = []
+                for k, v in ex_metadata.items():
+                    items.append({'key': k, 'value': v})
+                ex_metadata = {'items': items}
 
         request, node_data = self._create_node_req(name, size, image,
                                                    location, ex_network,
                                                    ex_tags, ex_metadata,
-                                                   ex_boot_disk, external_ip)
+                                                   ex_boot_disk, external_ip,
+                                                   ex_disk_type,
+                                                   ex_disk_auto_delete)
         self.connection.async_request(request, method='POST', data=node_data)
 
         return self.ex_get_node(name, location.name)
@@ -1217,6 +1325,8 @@ class GCENodeDriver(NodeDriver):
                                  ex_tags=None, ex_metadata=None,
                                  ignore_errors=True, use_existing_disk=True,
                                  poll_interval=2, external_ip='ephemeral',
+                                 ex_disk_type='pd-standard',
+                                 ex_auto_disk_delete=True,
                                  timeout=DEFAULT_TASK_COMPLETION_TIMEOUT):
         """
         Create multiple nodes and return a list of Node objects.
@@ -1273,6 +1383,15 @@ class GCENodeDriver(NodeDriver):
                                multiple node creation.)
         :type     external_ip: ``str`` or None
 
+        :keyword  ex_disk_type: Specify a pd-standard (default) disk or pd-ssd
+                                for an SSD disk.
+        :type     ex_disk_type: ``str``
+
+        :keyword  ex_disk_auto_delete: Indicate that the boot disk should be
+                                       deleted when the Node is deleted. Set to
+                                       True by default.
+        :type     ex_disk_auto_delete: ``bool``
+
         :keyword  timeout: The number of seconds to wait for all nodes to be
                            created before timing out.
         :type     timeout: ``int``
@@ -1298,7 +1417,8 @@ class GCENodeDriver(NodeDriver):
                       'metadata': ex_metadata,
                       'ignore_errors': ignore_errors,
                       'use_existing_disk': use_existing_disk,
-                      'external_ip': external_ip}
+                      'external_ip': external_ip,
+                      'ex_disk_type': ex_disk_type}
 
         # List for holding the status information for disk/node creation.
         status_list = []
@@ -1350,7 +1470,7 @@ class GCENodeDriver(NodeDriver):
         return node_list
 
     def ex_create_targetpool(self, name, region=None, healthchecks=None,
-                             nodes=None):
+                             nodes=None, session_affinity=None):
         """
         Create a target pool.
 
@@ -1366,6 +1486,10 @@ class GCENodeDriver(NodeDriver):
 
         :keyword  nodes:  Optional list of nodes to attach to the pool
         :type     nodes:  ``list`` of ``str`` or :class:`Node`
+
+        :keyword  session_affinity:  Optional algorithm to use for session
+                                     affinity.
+        :type     session_affinity:  ``str``
 
         :return:  Target Pool object
         :rtype:   :class:`GCETargetPool`
@@ -1391,6 +1515,8 @@ class GCENodeDriver(NodeDriver):
             else:
                 node_list = [n.extra['selfLink'] for n in nodes]
             targetpool_data['instances'] = node_list
+        if session_affinity:
+            targetpool_data['sessionAffinity'] = session_affinity
 
         request = '/regions/%s/targetPools' % (region.name)
 
@@ -1400,7 +1526,8 @@ class GCENodeDriver(NodeDriver):
         return self.ex_get_targetpool(name, region)
 
     def create_volume(self, size, name, location=None, snapshot=None,
-                      image=None, use_existing=True):
+                      image=None, use_existing=True,
+                      ex_disk_type='pd-standard'):
         """
         Create a volume (disk).
 
@@ -1426,11 +1553,15 @@ class GCENodeDriver(NodeDriver):
                                 of attempting to create a new disk.
         :type     use_existing: ``bool``
 
+        :keyword  ex_disk_type: Specify a pd-standard (default) disk or pd-ssd
+                                for an SSD disk.
+        :type     ex_disk_type: ``str``
+
         :return:  Storage Volume object
         :rtype:   :class:`StorageVolume`
         """
         request, volume_data, params = self._create_vol_req(
-            size, name, location, snapshot, image)
+            size, name, location, snapshot, image, ex_disk_type)
         try:
             self.connection.async_request(request, method='POST',
                                           data=volume_data, params=params)
@@ -1563,16 +1694,25 @@ class GCENodeDriver(NodeDriver):
         """
         if not hasattr(targetpool, 'name'):
             targetpool = self.ex_get_targetpool(targetpool)
-        if not hasattr(node, 'name'):
-            node = self.ex_get_node(node, 'all')
+        if hasattr(node, 'name'):
+            node_uri = node.extra['selfLink']
+        else:
+            if node.startswith('https://'):
+                node_uri = node
+            else:
+                node = self.ex_get_node(node, 'all')
+                node_uri = node.extra['selfLink']
 
-        targetpool_data = {'instances': [{'instance': node.extra['selfLink']}]}
+        targetpool_data = {'instances': [{'instance': node_uri}]}
 
         request = '/regions/%s/targetPools/%s/addInstance' % (
             targetpool.region.name, targetpool.name)
         self.connection.async_request(request, method='POST',
                                       data=targetpool_data)
-        targetpool.nodes.append(node)
+        if all((node_uri != n) and
+               (not hasattr(n, 'extra') or n.extra['selfLink'] != node_uri)
+               for n in targetpool.nodes):
+            targetpool.nodes.append(node)
         return True
 
     def ex_targetpool_add_healthcheck(self, targetpool, healthcheck):
@@ -1593,7 +1733,9 @@ class GCENodeDriver(NodeDriver):
         if not hasattr(healthcheck, 'name'):
             healthcheck = self.ex_get_healthcheck(healthcheck)
 
-        targetpool_data = {'healthCheck': healthcheck.extra['selfLink']}
+        targetpool_data = {
+            'healthChecks': [{'healthCheck': healthcheck.extra['selfLink']}]
+        }
 
         request = '/regions/%s/targetPools/%s/addHealthCheck' % (
             targetpool.region.name, targetpool.name)
@@ -1617,10 +1759,17 @@ class GCENodeDriver(NodeDriver):
         """
         if not hasattr(targetpool, 'name'):
             targetpool = self.ex_get_targetpool(targetpool)
-        if not hasattr(node, 'name'):
-            node = self.ex_get_node(node, 'all')
 
-        targetpool_data = {'instances': [{'instance': node.extra['selfLink']}]}
+        if hasattr(node, 'name'):
+            node_uri = node.extra['selfLink']
+        else:
+            if node.startswith('https://'):
+                node_uri = node
+            else:
+                node = self.ex_get_node(node, 'all')
+                node_uri = node.extra['selfLink']
+
+        targetpool_data = {'instances': [{'instance': node_uri}]}
 
         request = '/regions/%s/targetPools/%s/removeInstance' % (
             targetpool.region.name, targetpool.name)
@@ -1629,7 +1778,8 @@ class GCENodeDriver(NodeDriver):
         # Remove node object from node list
         index = None
         for i, nd in enumerate(targetpool.nodes):
-            if nd.name == node.name:
+            if nd == node_uri or (hasattr(nd, 'extra') and
+                                  nd.extra['selfLink'] == node_uri):
                 index = i
                 break
         if index is not None:
@@ -1654,7 +1804,9 @@ class GCENodeDriver(NodeDriver):
         if not hasattr(healthcheck, 'name'):
             healthcheck = self.ex_get_healthcheck(healthcheck)
 
-        targetpool_data = {'healthCheck': healthcheck.extra['selfLink']}
+        targetpool_data = {
+            'healthChecks': [{'healthCheck': healthcheck.extra['selfLink']}]
+        }
 
         request = '/regions/%s/targetPools/%s/removeHealthCheck' % (
             targetpool.region.name, targetpool.name)
@@ -2305,12 +2457,23 @@ class GCENodeDriver(NodeDriver):
             return self._to_node_image(response.object)
         image = self._match_images(None, partial_name)
         if not image:
-            if partial_name.startswith('debian'):
+            if (partial_name.startswith('debian') or
+                    partial_name.startswith('backports')):
                 image = self._match_images('debian-cloud', partial_name)
             elif partial_name.startswith('centos'):
                 image = self._match_images('centos-cloud', partial_name)
+            elif partial_name.startswith('sles'):
+                image = self._match_images('suse-cloud', partial_name)
+            elif partial_name.startswith('rhel'):
+                image = self._match_images('rhel-cloud', partial_name)
+            elif partial_name.startswith('windows'):
+                image = self._match_images('windows-cloud', partial_name)
             elif partial_name.startswith('container-vm'):
                 image = self._match_images('google-containers', partial_name)
+            elif partial_name.startswith('coreos'):
+                image = self._match_images('coreos-cloud', partial_name)
+            elif partial_name.startswith('opensuse'):
+                image = self._match_images('opensuse-cloud', partial_name)
 
         return image
 
@@ -2699,7 +2862,8 @@ class GCENodeDriver(NodeDriver):
 
     def _create_node_req(self, name, size, image, location, network,
                          tags=None, metadata=None, boot_disk=None,
-                         external_ip='ephemeral'):
+                         external_ip='ephemeral', ex_disk_type='pd-standard',
+                         ex_disk_auto_delete=True):
         """
         Returns a request and body to create a new node.  This is a helper
         method to support both :class:`create_node` and
@@ -2736,6 +2900,15 @@ class GCENodeDriver(NodeDriver):
                                be used.  To use an existing static IP address,
                                a GCEAddress object should be passed in.
         :type     external_ip: :class:`GCEAddress` or ``str`` or None
+
+        :keyword  ex_disk_type: Specify a pd-standard (default) disk or pd-ssd
+                                for an SSD disk.
+        :type     ex_disk_type: ``str``
+
+        :keyword  ex_disk_auto_delete: Indicate that the boot disk should be
+                                       deleted when the Node is deleted. Set to
+                                       True by default.
+        :type     ex_disk_auto_delete: ``bool``
 
         :return:  A tuple containing a request string and a node_data dict.
         :rtype:   ``tuple`` of ``str`` and ``dict``
@@ -2782,7 +2955,7 @@ class GCENodeDriver(NodeDriver):
         :type   status: ``dict``
 
         :param  node_attrs: Dictionary for holding node attribute information.
-                            (size, image, location, etc.)
+                            (size, image, location, ex_disk_type, etc.)
         :type   node_attrs: ``dict``
         """
         disk = None
@@ -2801,7 +2974,8 @@ class GCENodeDriver(NodeDriver):
             # Or, if there is an error, mark as failed.
             disk_req, disk_data, disk_params = self._create_vol_req(
                 None, status['name'], location=node_attrs['location'],
-                image=node_attrs['image'])
+                image=node_attrs['image'],
+                ex_disk_type=node_attrs['ex_disk_type'])
             try:
                 disk_res = self.connection.request(
                     disk_req, method='POST', data=disk_data,
@@ -2909,7 +3083,7 @@ class GCENodeDriver(NodeDriver):
                                               node_attrs['location'])
 
     def _create_vol_req(self, size, name, location=None, snapshot=None,
-                        image=None):
+                        image=None, ex_disk_type='pd-standard'):
         """
         Assemble the request/data for creating a volume.
 
@@ -2931,6 +3105,9 @@ class GCENodeDriver(NodeDriver):
 
         :keyword  image: Image to create disk from.
         :type     image: :class:`GCENodeImage` or ``str`` or ``None``
+
+        :keyword  ex_disk_type: Specify pd-standard (default) or pd-ssd
+        :type     ex_disk_type: ``str``
 
         :return:  Tuple containing the request string, the data dictionary and
                   the URL parameters
@@ -2959,6 +3136,12 @@ class GCENodeDriver(NodeDriver):
         location = location or self.zone
         if not hasattr(location, 'name'):
             location = self.ex_get_zone(location)
+        if ex_disk_type.startswith('https'):
+            volume_data['type'] = ex_disk_type
+        else:
+            volume_data['type'] = 'https://www.googleapis.com/compute/'
+            volume_data['type'] += '%s/projects/%s/zones/%s/diskTypes/%s' % (
+                API_VERSION, self.project, location.name, ex_disk_type)
         request = '/zones/%s/disks' % (location.name)
 
         return request, volume_data, params
@@ -3288,6 +3471,7 @@ class GCENodeDriver(NodeDriver):
         extra['status'] = volume.get('status')
         extra['creationTimestamp'] = volume.get('creationTimestamp')
         extra['description'] = volume.get('description')
+        extra['type'] = volume.get('type', 'pd-standard').split('/')[-1]
 
         return StorageVolume(id=volume['id'], name=volume['name'],
                              size=volume['sizeGb'], driver=self, extra=extra)
@@ -3305,6 +3489,7 @@ class GCENodeDriver(NodeDriver):
         extra = {}
         extra['selfLink'] = targetpool.get('selfLink')
         extra['description'] = targetpool.get('description')
+        extra['sessionAffinity'] = targetpool.get('sessionAffinity')
         region = self.ex_get_region(targetpool['region'])
         healthcheck_list = [self.ex_get_healthcheck(h.split('/')[-1]) for h
                             in targetpool.get('healthChecks', [])]

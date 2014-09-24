@@ -107,6 +107,48 @@ class CloudStackCommonTestCase(TestCaseMixin):
         self.assertEqual(node.private_ips, ['192.168.1.2'])
         self.assertEqual(node.extra['zone_id'], default_location.id)
 
+    def test_create_node_ex_networks(self):
+        CloudStackMockHttp.fixture_tag = 'deploynetworks'
+        size = self.driver.list_sizes()[0]
+        image = self.driver.list_images()[0]
+        location = self.driver.list_locations()[0]
+
+        networks = [nw for nw in self.driver.ex_list_networks()
+                    if str(nw.zoneid) == str(location.id)]
+
+        node = self.driver.create_node(name='deploynetworks',
+                                       location=location,
+                                       image=image,
+                                       size=size,
+                                       networks=networks)
+        self.assertEqual(node.name, 'deploynetworks')
+        self.assertEqual(node.extra['size_id'], size.id)
+        self.assertEqual(node.extra['zone_id'], location.id)
+        self.assertEqual(node.extra['image_id'], image.id)
+        self.assertEqual(len(node.private_ips), 2)
+
+    def test_create_node_ex_ipaddress(self):
+        CloudStackMockHttp.fixture_tag = 'deployip'
+        size = self.driver.list_sizes()[0]
+        image = self.driver.list_images()[0]
+        location = self.driver.list_locations()[0]
+        ipaddress = '10.1.0.128'
+
+        networks = [nw for nw in self.driver.ex_list_networks()
+                    if str(nw.zoneid) == str(location.id)]
+
+        node = self.driver.create_node(name='deployip',
+                                       location=location,
+                                       image=image,
+                                       size=size,
+                                       networks=networks,
+                                       ex_ip_address=ipaddress)
+        self.assertEqual(node.name, 'deployip')
+        self.assertEqual(node.extra['size_id'], size.id)
+        self.assertEqual(node.extra['zone_id'], location.id)
+        self.assertEqual(node.extra['image_id'], image.id)
+        self.assertEqual(node.private_ips[0], ipaddress)
+
     def test_create_node_ex_security_groups(self):
         size = self.driver.list_sizes()[0]
         image = self.driver.list_images()[0]
@@ -525,6 +567,72 @@ class CloudStackCommonTestCase(TestCaseMixin):
         self.assertEqual(rule.public_end_port, public_end_port)
         self.assertEqual(rule.private_port, private_port)
         self.assertEqual(rule.private_end_port, private_end_port)
+
+    def test_ex_list_firewall_rules(self):
+        rules = self.driver.ex_list_firewall_rules()
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        self.assertEqual(rule.address.address, '1.1.1.116')
+        self.assertEqual(rule.protocol, 'tcp')
+        self.assertEqual(rule.cidr_list, '192.168.0.0/16')
+        self.assertIsNone(rule.icmp_code)
+        self.assertIsNone(rule.icmp_type)
+        self.assertEqual(rule.start_port, '33')
+        self.assertEqual(rule.end_port, '34')
+
+    def test_ex_list_firewall_rules_icmp(self):
+        CloudStackMockHttp.fixture_tag = 'firewallicmp'
+        rules = self.driver.ex_list_firewall_rules()
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        self.assertEqual(rule.address.address, '1.1.1.116')
+        self.assertEqual(rule.protocol, 'icmp')
+        self.assertEqual(rule.cidr_list, '192.168.0.0/16')
+        self.assertEqual(rule.icmp_code, 0)
+        self.assertEqual(rule.icmp_type, 8)
+        self.assertIsNone(rule.start_port)
+        self.assertIsNone(rule.end_port)
+
+    def test_ex_delete_firewall_rule(self):
+        rules = self.driver.ex_list_firewall_rules()
+        res = self.driver.ex_delete_firewall_rule(rules[0])
+        self.assertTrue(res)
+
+    def test_ex_create_firewall_rule(self):
+        address = self.driver.ex_list_public_ips()[0]
+        cidr_list = '192.168.0.0/16'
+        protocol = 'TCP'
+        start_port = 33
+        end_port = 34
+        rule = self.driver.ex_create_firewall_rule(address,
+                                                   cidr_list,
+                                                   protocol,
+                                                   start_port=start_port,
+                                                   end_port=end_port)
+        self.assertEqual(rule.address, address)
+        self.assertEqual(rule.protocol, protocol)
+        self.assertIsNone(rule.icmp_code)
+        self.assertIsNone(rule.icmp_type)
+        self.assertEqual(rule.start_port, start_port)
+        self.assertEqual(rule.end_port, end_port)
+
+    def test_ex_create_firewall_rule_icmp(self):
+        address = self.driver.ex_list_public_ips()[0]
+        cidr_list = '192.168.0.0/16'
+        protocol = 'icmp'
+        icmp_code = 0
+        icmp_type = 8
+        rule = self.driver.ex_create_firewall_rule(address,
+                                                   cidr_list,
+                                                   protocol,
+                                                   icmp_code=icmp_code,
+                                                   icmp_type=icmp_type)
+        self.assertEqual(rule.address, address)
+        self.assertEqual(rule.protocol, protocol)
+        self.assertEqual(rule.icmp_code, 0)
+        self.assertEqual(rule.icmp_type, 8)
+        self.assertIsNone(rule.start_port)
+        self.assertIsNone(rule.end_port)
 
     def test_ex_list_port_forwarding_rules(self):
         rules = self.driver.ex_list_port_forwarding_rules()
