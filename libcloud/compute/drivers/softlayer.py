@@ -49,6 +49,9 @@ DATACENTERS = {
     'sjc01': {'country': 'US', 'name': 'San Jose - West Coast U.S.'},
     'sng01': {'country': 'SG', 'name': 'Singapore - Southeast Asia'},
     'ams01': {'country': 'NL', 'name': 'Amsterdam - Western Europe'},
+    'tor01': {'country': 'CA'},
+    'lon02': {'country': 'UK'},
+    'hkg02': {'country': 'HK'},
 }
 
 NODE_STATE_MAP = {
@@ -337,13 +340,24 @@ class SoftLayerNodeDriver(NodeDriver):
         :type       ex_os: ``str``
         :keyword    ex_keyname: The name of the key pair
         :type       ex_keyname: ``str``
+        :keyword    ex_image_template: An identifier for an Image Template e.g. e65d5db7-121a-4c14-9e63-f5055f392970
+        :type       ex_image_template: ``str``
         """
         name = kwargs['name']
         os = 'DEBIAN_LATEST'
+        image_id = None
+
+        if 'ex_image_template' in kwargs:
+            image_id = kwargs['ex_image_template']
         if 'ex_os' in kwargs:
             os = kwargs['ex_os']
         elif 'image' in kwargs:
-            os = kwargs['image'].id
+            image = kwargs['image']
+
+            if image.extra and 'privateTemplate' in image.extra and image.extra['privateTemplate']:
+                image_id = image.id
+            else:
+                os = image.id
 
         size = kwargs.get('size', NodeSize(id=123, name='Custom', ram=None,
                                            disk=None, bandwidth=None,
@@ -393,9 +407,15 @@ class SoftLayerNodeDriver(NodeDriver):
             'maxMemory': ram,
             'networkComponents': [{'maxSpeed': bandwidth}],
             'hourlyBillingFlag': hourly,
-            'operatingSystemReferenceCode': os,
             'localDiskFlag': local_disk,
-            'blockDevices': [
+        }
+
+        if image_id:
+            newCCI['blockDeviceTemplateGroup'] = {'globalIdentifier': image_id}
+
+        else:
+            newCCI['operatingSystemReferenceCode'] = os
+            newCCI['blockDevices'] = [
                 {
                     'device': '0',
                     'diskImage': {
@@ -403,8 +423,6 @@ class SoftLayerNodeDriver(NodeDriver):
                     }
                 }
             ]
-
-        }
 
         if datacenter:
             newCCI['datacenter'] = {'name': datacenter}
@@ -481,11 +499,28 @@ class SoftLayerNodeDriver(NodeDriver):
             driver=self.connection.driver
         )
 
+    def _to_private_image(self, img):
+        extra = img
+        extra['privateTemplate'] = True
+        return NodeImage(
+            id=img['globalIdentifier'],
+            name=img['name'],
+            driver=self.connection.driver,
+            extra=extra
+        )
+
     def list_images(self, location=None):
         result = self.connection.request(
             'SoftLayer_Virtual_Guest', 'getCreateObjectOptions'
         ).object
-        return [self._to_image(i) for i in result['operatingSystems']]
+        images = [self._to_image(i) for i in result['operatingSystems']]
+        result = self.connection.request(
+            'SoftLayer_Account', 'getPrivateBlockDeviceTemplateGroups'
+        ).object
+        images.extend(self._to_private_image(i) for i in result)
+
+        return images
+
 
     def _to_size(self, id, size):
         return NodeSize(
