@@ -798,7 +798,7 @@ class AzureNodeDriver(NodeDriver):
                 "local_port": endpoint.local_port,
 
             }
-            for endpoint in node.extra['instance_endpoints']
+            for endpoint in node.extra.setdefault('instance_endpoints', [])
         ]
 
         all_endpoints.extend(endpoints)
