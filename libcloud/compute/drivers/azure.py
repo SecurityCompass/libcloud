@@ -1258,8 +1258,8 @@ class AzureNodeDriver(NodeDriver):
             parsed_url = urlparse.urlparse(e.location)
             request.host = parsed_url.netloc
             return self._perform_request(request)
-        except Exception as e:
-            raise e
+        except Exception:
+            raise
 
     def _update_request_uri_query(self, request):
         """
