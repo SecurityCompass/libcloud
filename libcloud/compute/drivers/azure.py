@@ -1258,8 +1258,8 @@ class AzureNodeDriver(NodeDriver):
             parsed_url = urlparse.urlparse(e.location)
             request.host = parsed_url.netloc
             return self._perform_request(request)
-        except Exception as e:
-            raise e
+        except Exception:
+            raise
 
     def _update_request_uri_query(self, request):
         """
@@ -1585,7 +1585,7 @@ class AzureNodeDriver(NodeDriver):
         root = ET.Element()
         doc = self._construct_element_tree(source, root)
 
-        result = ensure_string(ET.tostring(doc, encoding='utf8', method='xml'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8', method='xml'))
         return result
 
     def _construct_element_tree(self, source, etree):
@@ -1984,7 +1984,7 @@ class AzureXmlSerializer(object):
             'RestartRoleOperation',
             xml
         )
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -1995,7 +1995,7 @@ class AzureXmlSerializer(object):
             'ShutdownRoleOperation',
             xml
         )
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2006,7 +2006,7 @@ class AzureXmlSerializer(object):
             'StartRoleOperation',
             xml
         )
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2396,7 +2396,7 @@ class AzureXmlSerializer(object):
             system_configuration_set,
             doc
         )
-        result = ensure_string(ET.tostring(xml, encoding='utf8'))
+        result = ensure_string(ET.tostring(xml, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2423,7 +2423,7 @@ class AzureXmlSerializer(object):
             doc
         )
 
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2463,7 +2463,7 @@ class AzureXmlSerializer(object):
             xml
         )
         doc = AzureXmlSerializer.doc_from_xml('CaptureRoleOperation', xml)
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2514,7 +2514,7 @@ class AzureXmlSerializer(object):
                 )
             )
 
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
@@ -2583,7 +2583,7 @@ class AzureXmlSerializer(object):
                 )
             )
 
-        result = ensure_string(ET.tostring(doc, encoding='utf8'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8'))
         return result
 
     @staticmethod
