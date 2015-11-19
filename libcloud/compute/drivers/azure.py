@@ -516,7 +516,7 @@ class AzureNodeDriver(NodeDriver):
     def create_node(self, name, size, image, ex_cloud_service_name,
                     ex_storage_service_name=None, ex_new_deployment=False,
                     ex_deployment_slot="Production", ex_deployment_name=None,
-                    ex_admin_user_id="azureuser", auth=None, **kwargs):
+                    ex_admin_user_id="azureuser", auth=None, ex_instance_endpoints=None, **kwargs):
         """
         Create Azure Virtual Machine
 
@@ -667,6 +667,11 @@ class AzureNodeDriver(NodeDriver):
             )
 
         network_config.input_endpoints.items.append(endpoint)
+
+        if ex_instance_endpoints is not None:
+            additional_endpoints = [ConfigurationSetInputEndpoint(**endpoint) for endpoint in ex_instance_endpoints]
+            network_config.input_endpoints.items.extend(additional_endpoints)
+
 
         _storage_location = self._get_cloud_service_location(
             service_name=ex_cloud_service_name
