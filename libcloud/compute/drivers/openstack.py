@@ -45,7 +45,8 @@ from libcloud.compute.base import NodeSize, NodeImage
 from libcloud.compute.base import (NodeDriver, Node, NodeLocation,
                                    StorageVolume, VolumeSnapshot)
 from libcloud.compute.base import KeyPair
-from libcloud.compute.types import NodeState, StorageVolumeState, Provider
+from libcloud.compute.types import NodeState, StorageVolumeState, Provider, \
+    VolumeSnapshotState
 from libcloud.pricing import get_size_price
 from libcloud.utils.xml import findall
 
@@ -119,6 +120,16 @@ class OpenStackNodeDriver(NodeDriver, OpenStackDriverMixin):
         'error_extending': StorageVolumeState.ERROR,
     }
 
+    # http://developer.openstack.org/api-ref-blockstorage-v2.html#ext-backups-v2
+    SNAPSHOT_STATE_MAP = {
+        'creating': VolumeSnapshotState.CREATING,
+        'available': VolumeSnapshotState.AVAILABLE,
+        'deleting': VolumeSnapshotState.DELETING,
+        'error': VolumeSnapshotState.ERROR,
+        'restoring': VolumeSnapshotState.RESTORING,
+        'error_restoring': VolumeSnapshotState.ERROR
+    }
+
     def __new__(cls, key, secret=None, secure=True, host=None, port=None,
                 api_version=DEFAULT_API_VERSION, **kwargs):
         if cls is OpenStackNodeDriver:
@@ -164,7 +175,8 @@ class OpenStackNodeDriver(NodeDriver, OpenStackDriverMixin):
         return self._to_nodes(
             self.connection.request('/servers/detail', params=params).object)
 
-    def create_volume(self, size, name, location=None, snapshot=None):
+    def create_volume(self, size, name, location=None, snapshot=None,
+                      ex_volume_type=None):
         """
         Create a new volume.
 
@@ -183,6 +195,10 @@ class OpenStackNodeDriver(NodeDriver, OpenStackDriverMixin):
                           volume.  (optional)
         :type snapshot:  :class:`.VolumeSnapshot`
 
+        :param ex_volume_type: What kind of volume to create.
+                            (optional)
+        :type ex_volume_type: ``str``
+
         :return: The newly created volume.
         :rtype: :class:`StorageVolume`
         """
@@ -190,7 +206,7 @@ class OpenStackNodeDriver(NodeDriver, OpenStackDriverMixin):
             'display_name': name,
             'display_description': name,
             'size': size,
-            'volume_type': None,
+            'volume_type': ex_volume_type,
             'metadata': {
                 'contents': name,
             },
@@ -846,6 +862,7 @@ class OpenStack_1_0_NodeDriver(OpenStackNodeDriver):
                      'uri': "https://%s%s/servers/%s" % (
                          self.connection.host,
                          self.connection.request_path, el.get('id')),
+                     'service_name': self.connection.get_service_name(),
                      'metadata': metadata})
         return n
 
@@ -2079,6 +2096,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
         image_id = image.get('id', None) if image else None
         config_drive = api_node.get("config_drive", False)
         volumes_attached = api_node.get('os-extended-volumes:volumes_attached')
+        created = parse_date(api_node["created"])
 
         return Node(
             id=api_node['id'],
@@ -2087,6 +2105,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                                           NodeState.UNKNOWN),
             public_ips=public_ips,
             private_ips=private_ips,
+            created_at=created,
             driver=self,
             extra=dict(
                 hostId=api_node['hostId'],
@@ -2100,6 +2119,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                 flavorId=api_node['flavor']['id'],
                 uri=next(link['href'] for link in api_node['links'] if
                          link['rel'] == 'self'),
+                service_name=self.connection.get_service_name(),
                 metadata=api_node['metadata'],
                 password=api_node.get('adminPass', None),
                 created=api_node['created'],
@@ -2113,6 +2133,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                 vm_state=api_node.get("OS-EXT-STS:vm_state", None),
                 power_state=api_node.get("OS-EXT-STS:power_state", None),
                 progress=api_node.get("progress", None),
+                fault=api_node.get('fault')
             ),
         )
 
@@ -2159,6 +2180,11 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
                  'description': description,
                  'status': status}
 
+        state = self.SNAPSHOT_STATE_MAP.get(
+            status,
+            VolumeSnapshotState.UNKNOWN
+        )
+
         try:
             created_dt = parse_date(created_at)
         except ValueError:
@@ -2166,7 +2192,7 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
 
         snapshot = VolumeSnapshot(id=data['id'], driver=self,
                                   size=data['size'], extra=extra,
-                                  created=created_dt)
+                                  created=created_dt, state=state)
         return snapshot
 
     def _to_size(self, api_flavor, price=None, bandwidth=None):
@@ -2287,15 +2313,21 @@ class OpenStack_1_1_NodeDriver(OpenStackNodeDriver):
         ip_obj, = [x for x in floating_ips if x.ip_address == ip]
         return ip_obj
 
-    def ex_create_floating_ip(self):
+    def ex_create_floating_ip(self, ip_pool=None):
         """
-        Create new floating IP
+        Create new floating IP. The ip_pool attribute is optional only if your
+        infrastructure has only one IP pool available.
+
+        :param      ip_pool: name of the floating IP pool
+        :type       ip_pool: ``str``
 
         :rtype: :class:`OpenStack_1_1_FloatingIpAddress`
         """
+        data = {'pool': ip_pool} if ip_pool is not None else {}
         resp = self.connection.request('/os-floating-ips',
                                        method='POST',
-                                       data={})
+                                       data=data)
+
         data = resp.object['floating_ip']
         id = data['id']
         ip_address = data['ip']

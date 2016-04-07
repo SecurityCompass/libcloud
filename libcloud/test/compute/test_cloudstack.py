@@ -572,13 +572,42 @@ class CloudStackCommonTestCase(TestCaseMixin):
         self.assertEqual(1, len(volumes))
         self.assertEqual('ROOT-69942', volumes[0].name)
 
+    def test_ex_get_volume(self):
+        volume = self.driver.ex_get_volume(2600)
+        self.assertEqual('ROOT-69942', volume.name)
+
     def test_list_nodes(self):
         nodes = self.driver.list_nodes()
         self.assertEqual(2, len(nodes))
         self.assertEqual('test', nodes[0].name)
         self.assertEqual('2600', nodes[0].id)
+        self.assertEqual(0, len(nodes[0].private_ips))
         self.assertEqual([], nodes[0].extra['security_group'])
         self.assertEqual(None, nodes[0].extra['key_name'])
+        self.assertEqual(1, len(nodes[0].public_ips))
+        self.assertEqual('1.1.1.116', nodes[0].public_ips[0])
+        self.assertEqual(1, len(nodes[0].extra['ip_addresses']))
+        self.assertEqual(34000, nodes[0].extra['ip_addresses'][0].id)
+        self.assertEqual(1, len(nodes[0].extra['ip_forwarding_rules']))
+        self.assertEqual('772fd410-6649-43ed-befa-77be986b8906',
+                         nodes[0].extra['ip_forwarding_rules'][0].id)
+        self.assertEqual(1, len(nodes[0].extra['port_forwarding_rules']))
+        self.assertEqual('bc7ea3ee-a2c3-4b86-a53f-01bdaa1b2e32',
+                         nodes[0].extra['port_forwarding_rules'][0].id)
+
+    def test_ex_get_node(self):
+        node = self.driver.ex_get_node(2600)
+        self.assertEqual('test', node.name)
+        self.assertEqual('2600', node.id)
+        self.assertEqual([], node.extra['security_group'])
+        self.assertEqual(None, node.extra['key_name'])
+        self.assertEqual(1, len(node.public_ips))
+        self.assertEqual('1.1.1.116', node.public_ips[0])
+        self.assertEqual(1, len(node.extra['ip_addresses']))
+        self.assertEqual(34000, node.extra['ip_addresses'][0].id)
+
+    def test_ex_get_node_doesnt_exist(self):
+        self.assertRaises(Exception, self.driver.ex_get_node(26), node_id=26)
 
     def test_list_locations(self):
         location = self.driver.list_locations()[0]
@@ -726,12 +755,20 @@ class CloudStackCommonTestCase(TestCaseMixin):
         self.assertTrue(res)
 
     def test_ex_authorize_security_group_ingress(self):
-        res = self.driver.ex_authorize_security_group_ingress('MySG',
-                                                              'TCP',
-                                                              '22',
-                                                              '22',
-                                                              '0.0.0.0/0')
-        self.assertTrue(res)
+        res = self.driver.ex_authorize_security_group_ingress('test_sg',
+                                                              'udp',
+                                                              '0.0.0.0/0',
+                                                              '0',
+                                                              '65535')
+        self.assertEqual(res.get('name'), 'test_sg')
+        self.assertTrue('ingressrule' in res)
+        rules = res['ingressrule']
+        self.assertEqual(len(rules), 1)
+        rule = rules[0]
+        self.assertEqual(rule['cidr'], '0.0.0.0/0')
+        self.assertEqual(rule['endport'], 65535)
+        self.assertEqual(rule['protocol'], 'udp')
+        self.assertEqual(rule['startport'], 0)
 
     def test_ex_create_affinity_group(self):
         res = self.driver.ex_create_affinity_group('MyAG2',

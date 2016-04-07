@@ -28,10 +28,10 @@ try:
 except ImportError:
     has_epydoc = False
 
-import libcloud.utils.misc
+import libcloud.utils
 from libcloud.utils.dist import get_packages, get_data_files
 
-libcloud.utils.misc.SHOW_DEPRECATION_WARNING = False
+libcloud.utils.SHOW_DEPRECATION_WARNING = False
 
 # Different versions of python have different requirements.  We can't use
 # libcloud.utils.py3 here because it relies on backports dependency being
@@ -48,10 +48,13 @@ HTML_VIEWSOURCE_BASE = 'https://svn.apache.org/viewvc/libcloud/trunk'
 PROJECT_BASE_DIR = 'http://libcloud.apache.org'
 TEST_PATHS = ['libcloud/test', 'libcloud/test/common', 'libcloud/test/compute',
               'libcloud/test/storage', 'libcloud/test/loadbalancer',
-              'libcloud/test/dns']
+              'libcloud/test/dns', 'libcloud/test/container',
+              'libcloud/test/backup']
 DOC_TEST_MODULES = ['libcloud.compute.drivers.dummy',
                     'libcloud.storage.drivers.dummy',
-                    'libcloud.dns.drivers.dummy']
+                    'libcloud.dns.drivers.dummy',
+                    'libcloud.container.drivers.dummy',
+                    'libcloud.backup.drivers.dummy']
 
 SUPPORTED_VERSIONS = ['2.5', '2.6', '2.7', 'PyPy', '3.x']
 
@@ -97,6 +100,8 @@ def forbid_publish():
 class TestCommand(Command):
     description = "run test suite"
     user_options = []
+    unittest_TestLoader = TestLoader
+    unittest_TextTestRunner = TextTestRunner
 
     def initialize_options(self):
         THIS_DIR = os.path.abspath(os.path.split(__file__)[0])
@@ -121,8 +126,9 @@ class TestCommand(Command):
 
         if unittest2_required:
             try:
-                import unittest2
-                unittest2
+                from unittest2 import TextTestRunner, TestLoader
+                self.unittest_TestLoader = TestLoader
+                self.unittest_TextTestRunner = TextTestRunner
             except ImportError:
                 print('Python version: %s' % (sys.version))
                 print('Missing "unittest2" library. unittest2 is library is '
@@ -176,12 +182,24 @@ class TestCommand(Command):
                 testfiles.append('.'.join(
                     [test_path.replace('/', '.'), splitext(basename(t))[0]]))
 
-        tests = TestLoader().loadTestsFromNames(testfiles)
+        # Test loader simply throws "'module' object has no attribute" error
+        # if there is an issue with the test module so we manually try to
+        # import each module so we get a better and more friendly error message
+        for test_file in testfiles:
+            try:
+                __import__(test_file)
+            except Exception:
+                e = sys.exc_info()[1]
+                print('Failed to import test module "%s": %s' % (test_file,
+                                                                 str(e)))
+                raise e
+
+        tests = self.unittest_TestLoader().loadTestsFromNames(testfiles)
 
         for test_module in DOC_TEST_MODULES:
             tests.addTests(doctest.DocTestSuite(test_module))
 
-        t = TextTestRunner(verbosity=2)
+        t = self.unittest_TextTestRunner(verbosity=2)
         res = t.run(tests)
         return not res.wasSuccessful()
 
@@ -267,6 +285,7 @@ setup(
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',
+        'Intended Audience :: Developers',
         'Intended Audience :: System Administrators',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent',
@@ -281,4 +300,7 @@ setup(
         'Programming Language :: Python :: 3.2',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: Implementation :: PyPy'])
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: Implementation :: CPython',
+        'Programming Language :: Python :: Implementation :: PyPy']
+    )

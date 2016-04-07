@@ -63,7 +63,7 @@ Available arguments:
   is provided, this step is skipped and the provided value is used directly.
 
 Some examples which show how to use this arguments can be found in the section
-bellow.
+below.
 
 Examples
 --------
@@ -84,7 +84,7 @@ Examples
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Keep in mind that the base url must also contain tenant id as the last
-component of the URL (``12345`` in the example bellow).
+component of the URL (``12345`` in the example below).
 
 .. literalinclude:: /examples/compute/openstack/force_base_url.py
    :language: python
@@ -122,7 +122,7 @@ Connecting to HP Cloud US West and US East (OpenStack Havana).
 .. literalinclude:: /examples/compute/openstack/hpcloud.py
    :language: python
 
-7. Using Cloud-Init with Openstack
+7. Using Cloud-Init with OpenStack
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This example shows how to use cloud-init using the ``ex_config_drive`` and
@@ -150,7 +150,7 @@ This functionality includes:
 * key-pair management
 
 For information on how to use this functionality please see the method
-docstrings bellow.
+docstrings below.
 
 Other Information
 -----------------

@@ -363,7 +363,7 @@ class AzureNodeDriver(NodeDriver):
         """
         sizes = []
 
-        for key, values in self._instance_types.items():
+        for _, values in self._instance_types.items():
             node_size = self._to_node_size(copy.deepcopy(values))
             sizes.append(node_size)
 
@@ -501,7 +501,7 @@ class AzureNodeDriver(NodeDriver):
     def list_volumes(self, node=None):
         """
         Lists volumes of the disks in the image repository that are
-        associated with the specificed subscription.
+        associated with the specified subscription.
 
         Pass Node object to scope the list of volumes to a single
         instance.
@@ -516,7 +516,9 @@ class AzureNodeDriver(NodeDriver):
     def create_node(self, name, size, image, ex_cloud_service_name,
                     ex_storage_service_name=None, ex_new_deployment=False,
                     ex_deployment_slot="Production", ex_deployment_name=None,
-                    ex_admin_user_id="azureuser", auth=None, ex_instance_endpoints=None, **kwargs):
+                    ex_admin_user_id="azureuser", ex_custom_data=None,
+                    ex_virtual_network_name=None, ex_network_config=None,
+                    ex_instance_endpoints=None, auth=None, **kwargs):
         """
         Create Azure Virtual Machine
 
@@ -570,9 +572,22 @@ class AzureNodeDriver(NodeDriver):
                                          to using the Cloud Service name.
         :type        ex_deployment_name: ``str``
 
+        :type        ex_custom_data: ``str``
+        :keyword     ex_custom_data: Optional script or other data which is
+                                     injected into the VM when it's beginning
+                                     provisioned.
 
         :keyword     ex_admin_user_id: Optional. Defaults to 'azureuser'.
         :type        ex_admin_user_id:  ``str``
+
+        :keyword     ex_virtual_network_name: Optional. If this is not passed
+                                              in no virtual network is used.
+        :type        ex_virtual_network_name:  ``str``
+
+        :keyword     ex_network_config: Optional. The ConfigurationSet to use
+                                        for network configuration
+        :type        ex_network_config:  `ConfigurationSet`
+
         """
         # TODO: Refactor this method to make it more readable, split it into
         # multiple smaller methods
@@ -594,8 +609,15 @@ class AzureNodeDriver(NodeDriver):
             ex_cloud_service_name=ex_cloud_service_name
         )
 
-        network_config = ConfigurationSet()
+        if ex_network_config is None:
+            network_config = ConfigurationSet()
+        else:
+            network_config = ex_network_config
         network_config.configuration_set_type = 'NetworkConfiguration'
+
+        # Base64 encode custom data if provided
+        if ex_custom_data:
+            ex_custom_data = self._encode_base64(data=ex_custom_data)
 
         # We do this because we need to pass a Configuration to the
         # method. This will be either Linux or Windows.
@@ -663,7 +685,8 @@ class AzureNodeDriver(NodeDriver):
                 name,
                 ex_admin_user_id,
                 password,
-                False
+                False,
+                ex_custom_data
             )
 
         network_config.input_endpoints.items.append(endpoint)
@@ -742,7 +765,7 @@ class AzureNodeDriver(NodeDriver):
                     None,
                     None,
                     size.id,
-                    None,
+                    ex_virtual_network_name,
                     vm_image_id
                 )
             )
@@ -908,7 +931,6 @@ class AzureNodeDriver(NodeDriver):
 
         :rtype: ``bool``
         """
-        # TODO: add check to ensure all nodes have been deleted
         response = self._perform_cloud_service_delete(
             self._get_hosted_service_path(name)
         )
@@ -937,23 +959,25 @@ class AzureNodeDriver(NodeDriver):
 
     def ex_set_instance_endpoints(self, node, endpoints,
                                   ex_deployment_slot="Production"):
-        """
-        endpoint = ConfigurationSetInputEndpoint(
-            name='SSH',
-            protocol='tcp',
-            port=port,
-            local_port='22',
-            load_balanced_endpoint_set_name=None,
-            enable_direct_server_return=False
-        )
-        {
-            'name': 'SSH',
-            'protocol': 'tcp',
-            'port': port,
-            'local_port': '22'
-        }
-        """
 
+        """
+        For example::
+
+            endpoint = ConfigurationSetInputEndpoint(
+                name='SSH',
+                protocol='tcp',
+                port=port,
+                local_port='22',
+                load_balanced_endpoint_set_name=None,
+                enable_direct_server_return=False
+            )
+            {
+                'name': 'SSH',
+                'protocol': 'tcp',
+                'port': port,
+                'local_port': '22'
+            }
+        """
         ex_cloud_service_name = node.extra['ex_cloud_service_name']
         vm_role_name = node.name
 
@@ -989,6 +1013,67 @@ class AzureNodeDriver(NodeDriver):
         )
 
         self.raise_for_response(response, 202)
+
+    def ex_create_storage_service(self, name, location,
+                                  description=None, affinity_group=None,
+                                  extended_properties=None):
+        """
+        Create an azure storage service.
+
+        :param      name: Name of the service to create
+        :type       name: ``str``
+
+        :param      location: Standard azure location string
+        :type       location: ``str``
+
+        :param      description: (Optional) Description of storage service.
+        :type       description: ``str``
+
+        :param      affinity_group: (Optional) Azure affinity group.
+        :type       affinity_group: ``str``
+
+        :param      extended_properties: (Optional) Additional configuration
+                                         options support by Azure.
+        :type       extended_properties: ``dict``
+
+        :rtype: ``bool``
+        """
+
+        response = self._perform_storage_service_create(
+            self._get_storage_service_path(),
+            AzureXmlSerializer.create_storage_service_to_xml(
+                service_name=name,
+                label=self._encode_base64(name),
+                description=description,
+                location=location,
+                affinity_group=affinity_group,
+                extended_properties=extended_properties
+            )
+        )
+
+        self.raise_for_response(response, 202)
+
+        return True
+
+    def ex_destroy_storage_service(self, name):
+        """
+        Destroy storage service. Storage service must not have any active
+        blobs. Sometimes Azure likes to hold onto volumes after they are
+        deleted for an inordinate amount of time, so sleep before calling
+        this method after volume deletion.
+
+        :param name: Name of storage service.
+        :type  name: ``str``
+
+        :rtype: ``bool``
+        """
+
+        response = self._perform_storage_service_delete(
+            self._get_storage_service_path(name)
+        )
+        self.raise_for_response(response, 200)
+
+        return True
 
     """
     Functions not implemented
@@ -1041,6 +1126,29 @@ class AzureNodeDriver(NodeDriver):
         return response
 
     def _perform_cloud_service_delete(self, path):
+        request = AzureHTTPRequest()
+        request.method = 'DELETE'
+        request.host = AZURE_SERVICE_MANAGEMENT_HOST
+        request.path = path
+        request.path, request.query = self._update_request_uri_query(request)
+        request.headers = self._update_management_header(request)
+        response = self._perform_request(request)
+
+        return response
+
+    def _perform_storage_service_create(self, path, data):
+        request = AzureHTTPRequest()
+        request.method = 'POST'
+        request.host = AZURE_SERVICE_MANAGEMENT_HOST
+        request.path = path
+        request.body = data
+        request.path, request.query = self._update_request_uri_query(request)
+        request.headers = self._update_management_header(request)
+        response = self._perform_request(request)
+
+        return response
+
+    def _perform_storage_service_delete(self, path):
         request = AzureHTTPRequest()
         request.method = 'DELETE'
         request.host = AZURE_SERVICE_MANAGEMENT_HOST
@@ -1714,7 +1822,8 @@ class AzureNodeDriver(NodeDriver):
         root = ET.Element()
         doc = self._construct_element_tree(source, root)
 
-        result = ensure_string(ET.tostring(doc, encoding='utf-8', method='xml'))
+        result = ensure_string(ET.tostring(doc, encoding='utf-8',
+                                           method='xml'))
         return result
 
     def _construct_element_tree(self, source, etree):
@@ -1910,10 +2019,41 @@ class AzureXmlSerializer(object):
                                      label,
                                      description,
                                      location,
-                                     affinity_group,
-                                     extended_properties):
+                                     affinity_group=None,
+                                     extended_properties=None):
+        if affinity_group:
+            return AzureXmlSerializer.doc_from_data(
+                'CreateHostedService',
+                [
+                    ('ServiceName', service_name),
+                    ('Label', label),
+                    ('Description', description),
+                    ('AffinityGroup', affinity_group),
+                ],
+                extended_properties
+            )
+
         return AzureXmlSerializer.doc_from_data(
             'CreateHostedService',
+            [
+                ('ServiceName', service_name),
+                ('Label', label),
+                ('Description', description),
+                ('Location', location),
+            ],
+            extended_properties
+        )
+
+    @staticmethod
+    def create_storage_service_to_xml(service_name,
+                                      label,
+                                      description,
+                                      location,
+                                      affinity_group,
+                                      extended_properties=None):
+
+        return AzureXmlSerializer.doc_from_data(
+            'CreateStorageServiceInput',
             [
                 ('ServiceName', service_name),
                 ('Label', label),
@@ -2303,6 +2443,12 @@ class AzureXmlSerializer(object):
                     kpair
                 )
                 AzureXmlSerializer.data_to_xml([('Path', key.path)], kpair)
+
+        if configuration.custom_data is not None:
+            AzureXmlSerializer.data_to_xml(
+                [('CustomData', configuration.custom_data)],
+                xml
+            )
 
         return xml
 
@@ -2785,7 +2931,8 @@ class LinuxConfigurationSet(WindowsAzureData):
                  host_name=None,
                  user_name=None,
                  user_password=None,
-                 disable_ssh_password_authentication=None):
+                 disable_ssh_password_authentication=None,
+                 custom_data=None):
         self.configuration_set_type = 'LinuxProvisioningConfiguration'
         self.host_name = host_name
         self.user_name = user_name
@@ -2793,6 +2940,7 @@ class LinuxConfigurationSet(WindowsAzureData):
         self.disable_ssh_password_authentication = \
             disable_ssh_password_authentication
         self.ssh = SSH()
+        self.custom_data = custom_data
 
 
 class WindowsConfigurationSet(WindowsAzureData):

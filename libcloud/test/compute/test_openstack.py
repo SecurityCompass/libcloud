@@ -34,7 +34,8 @@ from libcloud.utils.py3 import u
 
 from libcloud.common.types import InvalidCredsError, MalformedResponseError, \
     LibcloudError
-from libcloud.compute.types import Provider, KeyPairDoesNotExistError, StorageVolumeState
+from libcloud.compute.types import Provider, KeyPairDoesNotExistError, StorageVolumeState, \
+    VolumeSnapshotState
 from libcloud.compute.providers import get_driver
 from libcloud.compute.drivers.openstack import (
     OpenStack_1_0_NodeDriver, OpenStack_1_0_Response,
@@ -687,7 +688,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
         # assert that we use the base url and not the auth url
         self.assertEqual(self.driver.connection.host, 'ex_force_base_url.com')
-        self.assertEqual(self.driver.connection.port, '666')
+        self.assertEqual(self.driver.connection.port, 666)
         self.assertEqual(self.driver.connection.request_path, '/forced_url')
 
     def test_get_endpoint_populates_host_port_and_request_path(self):
@@ -699,7 +700,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
 
         # assert that we use the result of get endpoint
         self.assertEqual(self.driver.connection.host, 'endpoint_auth_url.com')
-        self.assertEqual(self.driver.connection.port, '1555')
+        self.assertEqual(self.driver.connection.port, 1555)
         self.assertEqual(self.driver.connection.request_path, '/service_url')
 
     def test_set_auth_token_populates_host_port_and_request_path(self):
@@ -712,7 +713,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         # assert that we use the base url and not the auth url
         self.assertEqual(
             self.driver.connection.host, 'some_other_ex_force_base_url.com')
-        self.assertEqual(self.driver.connection.port, '1222')
+        self.assertEqual(self.driver.connection.port, 1222)
         self.assertEqual(self.driver.connection.request_path, '/some-service')
 
     def test_auth_token_without_base_url_raises_exception(self):
@@ -774,6 +775,9 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertTrue(
             'fec0:4801:7808:52:16:3eff:fe60:187d' in node.private_ips)
 
+        # test creation date
+        self.assertEqual(node.created_at, datetime.datetime(2011, 10, 11, 0, 51, 39, tzinfo=UTC))
+
         self.assertEqual(node.extra.get('flavorId'), '2')
         self.assertEqual(node.extra.get('imageId'), '7')
         self.assertEqual(node.extra.get('metadata'), {})
@@ -788,6 +792,9 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(node.extra.get('vm_state'), 'active')
         self.assertEqual(node.extra.get('power_state'), 1)
         self.assertEqual(node.extra.get('progress'), 25)
+        self.assertEqual(node.extra.get('fault')['id'], 1234)
+        self.assertTrue(node.extra.get('service_name') is not None)
+        self.assertTrue(node.extra.get('uri') is not None)
 
     def test_list_nodes_no_image_id_attribute(self):
         # Regression test for LIBCLOD-455
@@ -1430,6 +1437,7 @@ class OpenStack_1_1_Tests(unittest.TestCase, TestCaseMixin):
         self.assertEqual(snapshots[0].created, datetime.datetime(2012, 2, 29, 3, 50, 7, tzinfo=UTC))
         self.assertEqual(snapshots[0].extra['created'], "2012-02-29T03:50:07Z")
         self.assertEqual(snapshots[0].extra['name'], 'snap-001')
+        self.assertEqual(snapshots[0].state, VolumeSnapshotState.AVAILABLE)
 
         # invalid date is parsed as None
         assert snapshots[2].created is None

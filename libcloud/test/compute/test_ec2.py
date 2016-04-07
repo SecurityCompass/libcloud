@@ -23,13 +23,6 @@ from libcloud.utils.iso8601 import UTC
 from libcloud.utils.py3 import httplib
 
 from libcloud.compute.drivers.ec2 import EC2NodeDriver
-from libcloud.compute.drivers.ec2 import EC2USWestNodeDriver
-from libcloud.compute.drivers.ec2 import EC2USWestOregonNodeDriver
-from libcloud.compute.drivers.ec2 import EC2EUNodeDriver
-from libcloud.compute.drivers.ec2 import EC2APSENodeDriver
-from libcloud.compute.drivers.ec2 import EC2APNENodeDriver
-from libcloud.compute.drivers.ec2 import EC2APSESydneyNodeDriver
-from libcloud.compute.drivers.ec2 import EC2SAEastNodeDriver
 from libcloud.compute.drivers.ec2 import EC2PlacementGroup
 from libcloud.compute.drivers.ec2 import NimbusNodeDriver, EucNodeDriver
 from libcloud.compute.drivers.ec2 import OutscaleSASNodeDriver
@@ -39,7 +32,8 @@ from libcloud.compute.drivers.ec2 import ExEC2AvailabilityZone
 from libcloud.compute.drivers.ec2 import EC2NetworkSubnet
 from libcloud.compute.base import Node, NodeImage, NodeSize, NodeLocation
 from libcloud.compute.base import StorageVolume, VolumeSnapshot
-from libcloud.compute.types import KeyPairDoesNotExistError, StorageVolumeState
+from libcloud.compute.types import KeyPairDoesNotExistError, StorageVolumeState, \
+    VolumeSnapshotState
 
 from libcloud.test import MockHttpTestCase, LibcloudTestCase
 from libcloud.test.compute import TestCaseMixin
@@ -116,6 +110,38 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(node.extra['tags']['Name'], 'foo')
         self.assertEqual(len(node.extra['tags']), 1)
 
+    def test_create_node_with_ex_assign_public_ip(self):
+        # assertions are done in _create_ex_assign_public_ip_RunInstances
+        EC2MockHttp.type = 'create_ex_assign_public_ip'
+        image = NodeImage(id='ami-11111111',
+                          name=self.image_name,
+                          driver=self.driver)
+        size = NodeSize('m1.small', 'Small Instance', None, None, None, None,
+                        driver=self.driver)
+        subnet = EC2NetworkSubnet('subnet-11111111', "test_subnet", "pending")
+        self.driver.create_node(
+            name='foo',
+            image=image,
+            size=size,
+            ex_subnet=subnet,
+            ex_security_group_ids=[
+                'sg-11111111'
+            ],
+            ex_assign_public_ip=True,
+        )
+
+    def test_create_node_with_ex_terminate_on_shutdown(self):
+        EC2MockHttp.type = 'create_ex_terminate_on_shutdown'
+        image = NodeImage(id='ami-be3adfd7',
+                          name=self.image_name,
+                          driver=self.driver)
+        size = NodeSize('m1.small', 'Small Instance', None, None, None, None,
+                        driver=self.driver)
+
+        # The important part about the test is asserted inside
+        # EC2MockHttp._create_ex_terminate_on_shutdown
+        self.driver.create_node(name='foo', image=image, size=size, ex_terminate_on_shutdown=True)
+
     def test_create_node_with_metadata(self):
         image = NodeImage(id='ami-be3adfd7',
                           name=self.image_name,
@@ -184,8 +210,10 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(node.id, 'i-4382922a')
         self.assertEqual(node.name, node.id)
         self.assertEqual(len(node.public_ips), 2)
-        self.assertEqual(node.extra['launch_time'],
-                         '2013-12-02T11:58:11.000Z')
+
+        self.assertEqual(node.extra['launch_time'], '2013-12-02T11:58:11.000Z')
+        self.assertEqual(node.created_at, datetime(2013, 12, 2, 11, 58, 11, tzinfo=UTC))
+
         self.assertTrue('instance_type' in node.extra)
         self.assertEqual(node.extra['availability'], 'us-east-1d')
         self.assertEqual(node.extra['key_name'], 'fauxkey')
@@ -210,12 +238,14 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(ret_node2.extra['subnet_id'], 'subnet-5fd9d412')
         self.assertEqual(ret_node2.extra['vpc_id'], 'vpc-61dcd30e')
         self.assertEqual(ret_node2.extra['tags']['Group'], 'VPC Test')
-        self.assertEqual(ret_node1.extra['launch_time'],
-                         '2013-12-02T11:58:11.000Z')
-        self.assertTrue('instance_type' in ret_node1.extra)
-        self.assertEqual(ret_node2.extra['launch_time'],
-                         '2013-12-02T15:58:29.000Z')
-        self.assertTrue('instance_type' in ret_node2.extra)
+
+        self.assertEqual(ret_node1.extra['launch_time'], '2013-12-02T11:58:11.000Z')
+        self.assertEqual(ret_node1.created_at, datetime(2013, 12, 2, 11, 58, 11, tzinfo=UTC))
+        self.assertEqual(ret_node2.extra['launch_time'], '2013-12-02T15:58:29.000Z')
+        self.assertEqual(ret_node2.created_at, datetime(2013, 12, 2, 15, 58, 29, tzinfo=UTC))
+
+        self.assertIn('instance_type', ret_node1.extra)
+        self.assertIn('instance_type', ret_node2.extra)
 
     def test_ex_list_reserved_nodes(self):
         node = self.driver.ex_list_reserved_nodes()[0]
@@ -382,20 +412,20 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
             self.assertTrue('m2.4xlarge' in ids)
 
             if region_name == 'us-east-1':
-                self.assertEqual(len(sizes), 40)
+                self.assertEqual(len(sizes), 53)
                 self.assertTrue('cg1.4xlarge' in ids)
                 self.assertTrue('cc2.8xlarge' in ids)
                 self.assertTrue('cr1.8xlarge' in ids)
             elif region_name == 'us-west-1':
-                self.assertEqual(len(sizes), 32)
+                self.assertEqual(len(sizes), 45)
             if region_name == 'us-west-2':
-                self.assertEqual(len(sizes), 29)
+                self.assertEqual(len(sizes), 41)
             elif region_name == 'ap-southeast-1':
-                self.assertEqual(len(sizes), 31)
+                self.assertEqual(len(sizes), 43)
             elif region_name == 'ap-southeast-2':
-                self.assertEqual(len(sizes), 36)
+                self.assertEqual(len(sizes), 47)
             elif region_name == 'eu-west-1':
-                self.assertEqual(len(sizes), 38)
+                self.assertEqual(len(sizes), 51)
 
         self.driver.region_name = region_old
 
@@ -834,6 +864,7 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual('Test snapshot', snap.extra['name'])
         self.assertEqual(vol.id, snap.extra['volume_id'])
         self.assertEqual('pending', snap.extra['state'])
+        self.assertEqual(VolumeSnapshotState.CREATING, snap.state)
         # 2013-08-15T16:22:30.000Z
         self.assertEqual(datetime(2013, 8, 15, 16, 22, 30, tzinfo=UTC), snap.created)
 
@@ -843,11 +874,13 @@ class EC2Tests(LibcloudTestCase, TestCaseMixin):
         self.assertEqual(len(snaps), 3)
 
         self.assertEqual('snap-428abd35', snaps[0].id)
+        self.assertEqual(VolumeSnapshotState.CREATING, snaps[0].state)
         self.assertEqual('vol-e020df80', snaps[0].extra['volume_id'])
         self.assertEqual(30, snaps[0].size)
         self.assertEqual('Daily Backup', snaps[0].extra['description'])
 
         self.assertEqual('snap-18349159', snaps[1].id)
+        self.assertEqual(VolumeSnapshotState.AVAILABLE, snaps[1].state)
         self.assertEqual('vol-b5a2c1v9', snaps[1].extra['volume_id'])
         self.assertEqual(15, snaps[1].size)
         self.assertEqual('Weekly backup', snaps[1].extra['description'])
@@ -1149,47 +1182,6 @@ class EC2SAEastTests(EC2Tests):
     region = 'sa-east-1'
 
 
-# Tests for the old, deprecated way of instantiating a driver.
-class EC2OldStyleModelTests(EC2Tests):
-    driver_klass = EC2USWestNodeDriver
-
-    def setUp(self):
-        EC2MockHttp.test = self
-        EC2NodeDriver.connectionCls.conn_classes = (None, EC2MockHttp)
-        EC2MockHttp.use_param = 'Action'
-        EC2MockHttp.type = None
-
-        self.driver = self.driver_klass(*EC2_PARAMS)
-
-
-class EC2USWest1OldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2USWestNodeDriver
-
-
-class EC2USWest2OldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2USWestOregonNodeDriver
-
-
-class EC2EUWestOldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2EUNodeDriver
-
-
-class EC2APSE1OldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2APSENodeDriver
-
-
-class EC2APNEOldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2APNENodeDriver
-
-
-class EC2APSE2OldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2APSESydneyNodeDriver
-
-
-class EC2SAEastOldStyleModelTests(EC2OldStyleModelTests):
-    driver_klass = EC2SAEastNodeDriver
-
-
 class EC2MockHttp(MockHttpTestCase):
     fixtures = ComputeFileFixtures('ec2')
 
@@ -1242,6 +1234,25 @@ class EC2MockHttp(MockHttpTestCase):
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 
     def _RunInstances(self, method, url, body, headers):
+        body = self.fixtures.load('run_instances.xml')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _create_ex_assign_public_ip_RunInstances(self, method, url, body, headers):
+        self.assertUrlContainsQueryParams(url, {
+            'NetworkInterface.1.AssociatePublicIpAddress': "true",
+            'NetworkInterface.1.DeleteOnTermination': "true",
+            'NetworkInterface.1.DeviceIndex': "0",
+            'NetworkInterface.1.SubnetId': "subnet-11111111",
+            'NetworkInterface.1.SecurityGroupId.1': "sg-11111111",
+        })
+        body = self.fixtures.load('run_instances_with_subnet_and_security_group.xml')
+        return (httplib.OK, body, {}, httplib.responses[httplib.OK])
+
+    def _create_ex_terminate_on_shutdown_RunInstances(self, method, url, body, headers):
+        self.assertUrlContainsQueryParams(url, {
+            'InstanceInitiatedShutdownBehavior': 'terminate'
+        })
+
         body = self.fixtures.load('run_instances.xml')
         return (httplib.OK, body, {}, httplib.responses[httplib.OK])
 

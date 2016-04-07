@@ -1,5 +1,5 @@
 Dimension Data Cloud Compute Driver Documentation
-=======================================
+=================================================
 
 Dimension Data are a global IT Services company and form part of the NTT Group.
 Dimension Data provide IT-as-a-Service to customers around the globe on their
@@ -24,6 +24,18 @@ driver constructor:
 
 * ``user_id`` - Your Dimension Data Cloud username
 * ``key`` - Your Dimension Data Cloud password
+* ``region`` - The region key, one of the possible region keys
+
+Possible regions:
+
+* ``dd-na`` : Dimension Data North America (USA)
+* ``dd-eu`` : Dimension Data Europe
+* ``dd-af`` : Dimension Data Africa
+* ``dd-au`` : Dimension Data Australia
+* ``dd-au-gov`` : Dimension Data Australia ACT (Canberra)
+* ``dd-latam`` : Dimension Data Latin America
+* ``dd-ap`` : Dimension Data Asia Pacific
+* ``dd-canada`` : Dimension Data Canada region
 
 The base `libcloud` API allows you to:
 
@@ -39,6 +51,8 @@ These functionalities include:
 
 * start and stop a node
 * list networks
+* create firewalls, configure network address translation
+* provision layer 3 networks
 
 For information on how to use these functionalities please see the method
 docstrings below. You can also use an interactive shell for exploration as

@@ -20,7 +20,7 @@ libcloud provides a unified interface to the cloud computing resources.
 """
 
 __all__ = ['__version__', 'enable_debug']
-__version__ = '0.17.1-dev'
+__version__ = '1.0.0-pre1'
 
 import os
 import codecs
@@ -57,7 +57,18 @@ def _init_once():
     """
     path = os.getenv('LIBCLOUD_DEBUG')
     if path:
-        fo = codecs.open(path, 'a', encoding='utf8')
+        mode = 'a'
+
+        # Special case for /dev/stderr and /dev/stdout on Python 3.
+        from libcloud.utils.py3 import PY3
+
+        # Opening those files in append mode will throw "illegal seek"
+        # exception there.
+        # Late import to avoid setup.py related side affects
+        if path in ['/dev/stderr', '/dev/stdout'] and PY3:
+            mode = 'w'
+
+        fo = codecs.open(path, mode, encoding='utf8')
         enable_debug(fo)
 
         if have_paramiko:

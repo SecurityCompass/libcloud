@@ -21,6 +21,8 @@ import datetime
 import time
 import sys
 
+from libcloud.common.base import LazyObject
+from libcloud.common.google import GoogleOAuth2Credential
 from libcloud.common.google import GoogleResponse
 from libcloud.common.google import GoogleBaseConnection
 from libcloud.common.google import GoogleBaseError
@@ -95,8 +97,7 @@ class GCEConnection(GoogleBaseConnection):
                                             auth_type=auth_type,
                                             credential_file=credential_file,
                                             **kwargs)
-        self.request_path = '/compute/%s/projects/%s' % (API_VERSION,
-                                                         project)
+        self.request_path = '/compute/%s/projects/%s' % (API_VERSION, project)
         self.gce_params = None
 
     def pre_connect_hook(self, params, headers):
@@ -180,7 +181,7 @@ class GCEList(object):
         Filter results of a list operation.
 
         GCE supports server-side filtering of resources returned by a list
-        operation. Syntax of the filter expression is fully descripted in the
+        operation. Syntax of the filter expression is fully described in the
         GCE API reference doc, but in brief it is::
 
             FIELD_NAME COMPARISON_STRING LITERAL_STRING
@@ -231,15 +232,37 @@ class GCEList(object):
         return self
 
 
-class GCELicense(UuidMixin):
+class GCELicense(UuidMixin, LazyObject):
     """A GCE License used to track software usage in GCE nodes."""
-    def __init__(self, id, name, driver, charges_use_fee, extra=None):
-        self.id = str(id)
-        self.name = name
-        self.driver = driver
-        self.charges_use_fee = charges_use_fee
-        self.extra = extra or {}
+    def __init__(self, name, project, driver):
         UuidMixin.__init__(self)
+        self.id = name
+        self.name = name
+        self.project = project
+        self.driver = driver
+        self.charges_use_fee = None  # init in _request
+        self.extra = None  # init in _request
+
+        self._request()
+
+    def _request(self):
+        # TODO(crunkleton@google.com): create new connection? or make
+        # connection thread-safe? Saving, modifying, and restoring
+        # driver.connection.request_path is really hacky and thread-unsafe.
+        saved_request_path = self.driver.connection.request_path
+        new_request_path = saved_request_path.replace(self.driver.project,
+                                                      self.project)
+        self.driver.connection.request_path = new_request_path
+
+        request = '/global/licenses/%s' % self.name
+        response = self.driver.connection.request(request, method='GET').object
+        self.driver.connection.request_path = saved_request_path
+
+        self.extra = {
+            'selfLink': response.get('selfLink'),
+            'kind': response.get('kind')
+        }
+        self.charges_use_fee = response['chargesUseFee']
 
     def destroy(self):
         raise ProviderError("Can not destroy a License resource.")
@@ -545,7 +568,9 @@ class GCERoute(UuidMixin):
 
     def __repr__(self):
         return '<GCERoute id="%s" name="%s" dest_range="%s" network="%s">' % (
-            self.id, self.name, self.dest_range, self.network.name)
+            self.id, self.name, self.dest_range,
+            hasattr(self.network, 'name') and self.network.name or
+            self.network)
 
 
 class GCENodeSize(NodeSize):
@@ -575,9 +600,9 @@ class GCEProject(UuidMixin):
         'startup-script' for all nodes (instances).  Passing in
         ``None`` for the 'metadata' parameter will clear out all common
         instance metadata *except* for 'sshKeys'. If you also want to
-        update 'sshKeys', set the 'force' paramater to ``True``.
+        update 'sshKeys', set the 'force' parameter to ``True``.
 
-        :param  metadata: Dictionay of metadata. Can be either a standard
+        :param  metadata: Dictionary of metadata. Can be either a standard
                           python dictionary, or the format expected by
                           GCE (e.g. {'items': [{'key': k1, 'value': v1}, ...}]
         :type   metadata: ``dict`` or ``None``
@@ -943,7 +968,7 @@ class GCENodeDriver(NodeDriver):
     result in additional GCE API calls.
     """
     connectionCls = GCEConnection
-    api_name = 'googleapis'
+    api_name = 'google'
     name = "Google Compute Engine"
     type = Provider.GCE
     website = 'https://cloud.google.com/'
@@ -971,15 +996,20 @@ class GCENodeDriver(NodeDriver):
     SA_SCOPES_MAP = {
         # list derived from 'gcloud compute instances create --help'
         "bigquery": "bigquery",
+        "cloud-platform": "cloud-platform",
         "compute-ro": "compute.readonly",
         "compute-rw": "compute",
         "datastore": "datastore",
+        "logging-write": "logging.write",
+        "monitoring": "monitoring",
         "sql": "sqlservice",
         "sql-admin": "sqlservice.admin",
         "storage-full": "devstorage.full_control",
         "storage-ro": "devstorage.read_only",
         "storage-rw": "devstorage.read_write",
         "taskqueue": "taskqueue",
+        "useraccounts-ro": "cloud.useraccounts.readonly",
+        "useraccounts-rw": "cloud.useraccounts",
         "userinfo-email": "userinfo.email"
     }
 
@@ -1040,7 +1070,7 @@ class GCENodeDriver(NodeDriver):
         self.project = project
         self.scopes = scopes
         self.credential_file = credential_file or \
-            '~/.gce_libcloud_auth' + '.' + self.project
+            GoogleOAuth2Credential.default_credential_file + '.' + self.project
 
         super(GCENodeDriver, self).__init__(user_id, key, **kwargs)
 
@@ -1275,9 +1305,9 @@ class GCENodeDriver(NodeDriver):
         'startup-script' for all nodes (instances).  Passing in
         ``None`` for the 'metadata' parameter will clear out all common
         instance metadata *except* for 'sshKeys'. If you also want to
-        update 'sshKeys', set the 'force' paramater to ``True``.
+        update 'sshKeys', set the 'force' parameter to ``True``.
 
-        :param  metadata: Dictionay of metadata. Can be either a standard
+        :param  metadata: Dictionary of metadata. Can be either a standard
                           python dictionary, or the format expected by
                           GCE (e.g. {'items': [{'key': k1, 'value': v1}, ...}]
         :type   metadata: ``dict`` or ``None``
@@ -1969,9 +1999,10 @@ class GCENodeDriver(NodeDriver):
         firewall_data['name'] = name
         firewall_data['allowed'] = allowed
         firewall_data['network'] = nw.extra['selfLink']
-        if source_ranges is None:
+        if source_ranges is None and source_tags is None:
             source_ranges = ['0.0.0.0/0']
-        firewall_data['sourceRanges'] = source_ranges
+        if source_ranges is not None:
+            firewall_data['sourceRanges'] = source_ranges
         if source_tags is not None:
             firewall_data['sourceTags'] = source_tags
         if target_tags is not None:
@@ -2068,7 +2099,7 @@ class GCENodeDriver(NodeDriver):
 
         return self.ex_get_forwarding_rule(name, global_rule=global_rule)
 
-    def ex_create_image(self, name, volume, description=None,
+    def ex_create_image(self, name, volume, description=None, family=None,
                         use_existing=True, wait_for_completion=True):
         """
         Create an image from the provided volume.
@@ -2082,6 +2113,13 @@ class GCENodeDriver(NodeDriver):
 
         :keyword    description: Description of the new Image
         :type       description: ``str``
+
+        :keyword    family: The name of the image family to which this image
+                            belongs. If you create resources by specifying an
+                            image family instead of a specific image name, the
+                            resource uses the latest non-deprecated image that
+                            is set with that family name.
+        :type       family: ``str``
 
         :keyword  use_existing: If True and an image with the given name
                                 already exists, return an object for that
@@ -2103,11 +2141,13 @@ class GCENodeDriver(NodeDriver):
         image_data = {}
         image_data['name'] = name
         image_data['description'] = description
+        image_data['family'] = family
         if isinstance(volume, StorageVolume):
             image_data['sourceDisk'] = volume.extra['selfLink']
             image_data['zone'] = volume.extra['zone'].name
-        elif isinstance(volume, str) and \
-                volume.startswith('https://') and volume.endswith('tar.gz'):
+        elif (isinstance(volume, str) and
+              volume.startswith('https://') and
+              volume.endswith('tar.gz')):
             image_data['rawDisk'] = {'source': volume, 'containerType': 'TAR'}
         else:
             raise ValueError('Source must be instance of StorageVolume or URI')
@@ -2184,8 +2224,7 @@ class GCENodeDriver(NodeDriver):
         elif isinstance(next_hop, str):
             route_data['nextHopIp'] = next_hop
         else:
-            node = self.ex_get_node(next_hop)
-            route_data['nextHopInstance'] = node.extra['selfLink']
+            route_data['nextHopInstance'] = next_hop.extra['selfLink']
 
         request = '/global/routes'
         self.connection.async_request(request, method='POST',
@@ -2228,7 +2267,8 @@ class GCENodeDriver(NodeDriver):
                     ex_disk_auto_delete=True, ex_service_accounts=None,
                     description=None, ex_can_ip_forward=None,
                     ex_disks_gce_struct=None, ex_nic_gce_struct=None,
-                    ex_on_host_maintenance=None, ex_automatic_restart=None):
+                    ex_on_host_maintenance=None, ex_automatic_restart=None,
+                    ex_preemptible=None):
         """
         Create a new node and return a node object for the node.
 
@@ -2284,7 +2324,7 @@ class GCENodeDriver(NodeDriver):
                                        list of dictionaries containing email
                                        and list of scopes, e.g.
                                        [{'email':'default',
-                                         'scopes':['compute', ...]}, ...]
+                                       'scopes':['compute', ...]}, ...]
                                        Scopes can either be full URLs or short
                                        names. If not provided, use the
                                        'default' service account email and a
@@ -2319,7 +2359,7 @@ class GCENodeDriver(NodeDriver):
                                      'ex_network'.  See the GCE docs for
                                      details.
         :type     ex_nic_gce_struct: ``list`` or ``None``
-n
+
         :keyword  ex_on_host_maintenance: Defines whether node should be
                                           terminated or migrated when host
                                           machine goes down. Acceptable values
@@ -2335,6 +2375,11 @@ n
                                         supplied, value will be set to the GCE
                                         default value for the instance type.)
         :type     ex_automatic_restart: ``bool`` or ``None``
+
+        :keyword  ex_preemptible: Defines whether the instance is preemptible.
+                                  (If not supplied, the instance will not be
+                                  preemptible)
+        :type     ex_preemptible: ``bool`` or ``None``
 
         :return:  A Node object for the new node.
         :rtype:   :class:`Node`
@@ -2360,7 +2405,7 @@ n
         if not hasattr(ex_disk_type, 'name'):
             ex_disk_type = self.ex_get_disktype(ex_disk_type, zone=location)
         if ex_boot_disk and not hasattr(ex_boot_disk, 'name'):
-            ex_boot_disk = self.ex_get_disk(ex_boot_disk, zone=location)
+            ex_boot_disk = self.ex_get_volume(ex_boot_disk, zone=location)
 
         # Use disks[].initializeParams to auto-create the boot disk
         if not ex_disks_gce_struct and not ex_boot_disk:
@@ -2389,7 +2434,8 @@ n
                                                    ex_disks_gce_struct,
                                                    ex_nic_gce_struct,
                                                    ex_on_host_maintenance,
-                                                   ex_automatic_restart)
+                                                   ex_automatic_restart,
+                                                   ex_preemptible)
         self.connection.async_request(request, method='POST', data=node_data)
         return self.ex_get_node(name, location.name)
 
@@ -2438,7 +2484,7 @@ n
         :keyword  ex_network: The network to associate with the nodes.
         :type     ex_network: ``str`` or :class:`GCENetwork`
 
-        :keyword  ex_tags: A list of tags to assiciate with the nodes.
+        :keyword  ex_tags: A list of tags to associate with the nodes.
         :type     ex_tags: ``list`` of ``str`` or ``None``
 
         :keyword  ex_metadata: Metadata dictionary for instances.
@@ -2477,7 +2523,7 @@ n
                                        list of dictionaries containing email
                                        and list of scopes, e.g.
                                        [{'email':'default',
-                                         'scopes':['compute', ...]}, ...]
+                                       'scopes':['compute', ...]}, ...]
                                        Scopes can either be full URLs or short
                                        names. If not provided, use the
                                        'default' service account email and a
@@ -2516,7 +2562,7 @@ n
                                      'ex_network'.  See the GCE docs for
                                      details.
         :type     ex_nic_gce_struct: ``list`` or ``None``
-n
+
         :keyword  ex_on_host_maintenance: Defines whether node should be
                                           terminated or migrated when host
                                           machine goes down. Acceptable values
@@ -2536,6 +2582,10 @@ n
         :return:  A list of Node objects for the new nodes.
         :rtype:   ``list`` of :class:`Node`
         """
+        if image and ex_disks_gce_struct:
+            raise ValueError("Cannot specify both 'image' and "
+                             "'ex_disks_gce_struct'.")
+
         location = location or self.zone
         if not hasattr(location, 'name'):
             location = self.ex_get_zone(location)
@@ -2566,24 +2616,15 @@ n
                       'ex_nic_gce_struct': ex_nic_gce_struct,
                       'ex_on_host_maintenance': ex_on_host_maintenance,
                       'ex_automatic_restart': ex_automatic_restart}
-
         # List for holding the status information for disk/node creation.
         status_list = []
 
         for i in range(number):
             name = '%s-%03d' % (base_name, i)
-
             status = {'name': name,
                       'node_response': None,
-                      'node': None,
-                      'disk_response': None,
-                      'disk': None}
-
+                      'node': None}
             status_list.append(status)
-
-        # Create disks for nodes
-        for status in status_list:
-            self._multi_create_disk(status, node_attrs)
 
         start_time = time.time()
         complete = False
@@ -2594,13 +2635,8 @@ n
             complete = True
             time.sleep(poll_interval)
             for status in status_list:
-                # If disk does not yet exist, check on its status
-                if not status['disk']:
-                    self._multi_check_disk(status, node_attrs)
-
-                # If disk exists, but node does not, create the node or check
-                # on its status if already in progress.
-                if status['disk'] and not status['node']:
+                # Create the node or check status if already in progress.
+                if not status['node']:
                     if not status['node_response']:
                         self._multi_create_node(status, node_attrs)
                     else:
@@ -3295,7 +3331,7 @@ n
                                        list of dictionaries containing email
                                        and list of scopes, e.g.
                                        [{'email':'default',
-                                         'scopes':['compute', ...]}, ...]
+                                       'scopes':['compute', ...]}, ...]
                                        Scopes can either be full URLs or short
                                        names. If not provided, use the
                                        'default' service account email and a
@@ -3388,6 +3424,8 @@ n
             volume_data['interface'] = ex_interface
         if ex_type:
             volume_data['type'] = ex_type
+        if ex_auto_delete:
+            volume_data['autoDelete'] = ex_auto_delete
 
         volume_data['source'] = ex_source or volume.extra['selfLink']
         volume_data['mode'] = ex_mode or 'READ_WRITE'
@@ -3645,6 +3683,30 @@ n
         """
         request = '/global/networks/%s' % (network.name)
         self.connection.async_request(request, method='DELETE')
+        return True
+
+    def ex_set_machine_type(self, node, machine_type='n1-standard-1'):
+        """
+        Set the machine type of the stopped instance. Can be the short-name,
+        a full, or partial URL.
+
+        :param  node: Target node object to change
+        :type   node: :class:`Node`
+
+        :param  machine_type: Desired machine type
+        :type   machine_type: ``str``
+
+        :return:  True if successful
+        :rtype:   ``bool``
+        """
+        request = mt_url = '/zones/%s' % node.extra['zone'].name
+
+        mt = machine_type.split('/')[-1]
+        mt_url = '%s/machineTypes/%s' % (mt_url, mt)
+
+        request = '%s/instances/%s/setMachineType' % (request, node.name)
+        body = {"machineType": mt_url}
+        self.connection.async_request(request, method='POST', data=body)
         return True
 
     def ex_start_node(self, node):
@@ -3907,15 +3969,7 @@ n
         :return:  A DiskType object for the name
         :rtype:   :class:`GCEDiskType`
         """
-        saved_request_path = self.connection.request_path
-        new_request_path = saved_request_path.replace(self.project, project)
-        self.connection.request_path = new_request_path
-
-        request = '/global/licenses/%s' % (name)
-        response = self.connection.request(request, method='GET').object
-        self.connection.request_path = saved_request_path
-
-        return self._to_license(response)
+        return GCELicense.lazy(name, project, self)
 
     def ex_get_disktype(self, name, zone=None):
         """
@@ -4030,13 +4084,22 @@ n
         response = self.connection.request(request, method='GET').object
         return self._to_forwarding_rule(response)
 
-    def ex_get_image(self, partial_name, ex_project_list=None):
+    def ex_get_image(self, partial_name, ex_project_list=None,
+                     ex_standard_projects=True):
         """
         Return an GCENodeImage object based on the name or link provided.
 
         :param  partial_name: The name, partial name, or full path of a GCE
                               image.
         :type   partial_name: ``str``
+
+        :param  ex_project_list: The name of the project to list for images.
+                                 Examples include: 'debian-cloud'.
+        :type   ex_project_List: ``str``, ``list`` of ``str``, or ``None``
+
+        :param  ex_standard_projects: If true, check in standard projects if
+                                      the image is not found.
+        :type   ex_standard_projects: ``bool``
 
         :return:  GCENodeImage object based on provided information or None if
                   an image with that name is not found.
@@ -4046,7 +4109,7 @@ n
             response = self.connection.request(partial_name, method='GET')
             return self._to_node_image(response.object)
         image = self._match_images(ex_project_list, partial_name)
-        if not image:
+        if not image and ex_standard_projects:
             for img_proj, short_list in self.IMAGE_PROJECTS.items():
                 for short_name in short_list:
                     if partial_name.startswith(short_name):
@@ -4289,7 +4352,7 @@ n
             return None
         return self._to_zone(response)
 
-    def ex_copy_image(self, name, url, description=None):
+    def ex_copy_image(self, name, url, description=None, family=None):
         """
         Copy an image to your image collection.
 
@@ -4301,6 +4364,9 @@ n
 
         :param  description: The description of the image
         :type   description: ``str``
+
+        :param  family: The family of the image
+        :type   family: ``str``
 
         :return:  NodeImage object based on provided information or None if an
                   image with that name is not found.
@@ -4314,6 +4380,7 @@ n
         image_data = {
             'name': name,
             'description': description,
+            'family': family,
             'sourceType': 'RAW',
             'rawDisk': {
                 'source': url,
@@ -4460,9 +4527,9 @@ n
         supplied project.  If no project is given, it will search your own
         project.
 
-        :param  project:  The name of the project to search for images.
-                          Examples include: 'debian-cloud' and 'centos-cloud'.
-        :type   project:  ``str`` or ``None``
+        :param  project: The name of the project to search for images.
+                         Examples include: 'debian-cloud' and 'centos-cloud'.
+        :type   project: ``str``, ``list`` of ``str``, or ``None``
 
         :param  partial_name: The full name or beginning of a name for an
                               image.
@@ -4531,7 +4598,8 @@ n
                          description=None, ex_can_ip_forward=None,
                          ex_disks_gce_struct=None, ex_nic_gce_struct=None,
                          ex_on_host_maintenance=None,
-                         ex_automatic_restart=None):
+                         ex_automatic_restart=None,
+                         ex_preemptible=None):
         """
         Returns a request and body to create a new node.  This is a helper
         method to support both :class:`create_node` and
@@ -4585,7 +4653,7 @@ n
                                        list of dictionaries containing email
                                        and list of scopes, e.g.
                                        [{'email':'default',
-                                         'scopes':['compute', ...]}, ...]
+                                       'scopes':['compute', ...]}, ...]
                                        Scopes can either be full URLs or short
                                        names. If not provided, use the
                                        'default' service account email and a
@@ -4620,7 +4688,7 @@ n
                                      'ex_network'.  See the GCE docs for
                                      details.
         :type     ex_nic_gce_struct: ``list`` or ``None``
-n
+
         :keyword  ex_on_host_maintenance: Defines whether node should be
                                           terminated or migrated when host
                                           machine goes down. Acceptable values
@@ -4636,6 +4704,11 @@ n
                                         supplied, value will be set to the GCE
                                         default value for the instance type.)
         :type     ex_automatic_restart: ``bool`` or ``None``
+
+        :keyword  ex_preemptible: Defines whether the instance is preemptible.
+                                        (If not supplied, the instance will
+                                         not be preemptible)
+        :type     ex_preemptible: ``bool`` or ``None``
 
         :return:  A tuple containing a request string and a node_data dict.
         :rtype:   ``tuple`` of ``str`` and ``dict``
@@ -4705,6 +4778,26 @@ n
         if ex_disks_gce_struct:
             node_data['disks'] = ex_disks_gce_struct
 
+        if image and ('disks' not in node_data or not node_data['disks']):
+            if not hasattr(image, 'name'):
+                image = self.ex_get_image(image)
+            if not ex_disk_type:
+                ex_disk_type = 'pd-standard'
+            if not hasattr(ex_disk_type, 'name'):
+                ex_disk_type = self.ex_get_disktype(ex_disk_type)
+            disks = [{'boot': True,
+                      'type': 'PERSISTENT',
+                      'mode': 'READ_WRITE',
+                      'deviceName': name,
+                      'autoDelete': ex_disk_auto_delete,
+                      'zone': location.name,
+                      'initializeParams': {
+                          'diskName': name,
+                          'diskType': ex_disk_type.extra['selfLink'],
+                          'sourceImage': image.extra['selfLink'],
+                      }}]
+            node_data['disks'] = disks
+
         if ex_nic_gce_struct is not None:
             if hasattr(external_ip, 'address'):
                 raise ValueError("Cannot specify both a static IP address "
@@ -4747,6 +4840,8 @@ n
                 scheduling['onHostMaintenance'] = 'MIGRATE'
         if ex_automatic_restart is not None:
             scheduling['automaticRestart'] = ex_automatic_restart
+        if ex_preemptible is not None:
+            scheduling['preemptible'] = ex_preemptible
         if scheduling:
             node_data['scheduling'] = scheduling
 
@@ -4827,7 +4922,7 @@ n
     def _multi_create_node(self, status, node_attrs):
         """Create node for ex_create_multiple_nodes.
 
-        :param  status: Dictionary for holding node/disk creation status.
+        :param  status: Dictionary for holding node creation status.
                         (This dictionary is modified by this method)
         :type   status: ``dict``
 
@@ -4835,10 +4930,6 @@ n
                             (size, image, location, etc.)
         :type   node_attrs: ``dict``
         """
-        # If disk has an error, set the node as failed and return
-        if hasattr(status['disk'], 'error'):
-            status['node'] = status['disk']
-            return
 
         # Create node and return response object in status dictionary.
         # Or, if there is an error, mark as failed.
@@ -4863,8 +4954,7 @@ n
             error = e.value
             code = e.code
             node_res = None
-            status['node'] = GCEFailedNode(status['name'],
-                                           error, code)
+            status['node'] = GCEFailedNode(status['name'], error, code)
         status['node_response'] = node_res
 
     def _multi_check_node(self, status, node_attrs):
@@ -4887,14 +4977,15 @@ n
             error = e.value
             code = e.code
             response = {'status': 'DONE'}
+        except ResourceNotFoundError:
+            return
         if response['status'] == 'DONE':
             status['node_response'] = None
-        if error:
-            status['node'] = GCEFailedNode(status['name'],
-                                           error, code)
-        else:
-            status['node'] = self.ex_get_node(status['name'],
-                                              node_attrs['location'])
+            if error:
+                status['node'] = GCEFailedNode(status['name'], error, code)
+            else:
+                status['node'] = self.ex_get_node(status['name'],
+                                                  node_attrs['location'])
 
     def _create_vol_req(self, size, name, location=None, snapshot=None,
                         image=None, ex_disk_type='pd-standard'):
@@ -5194,6 +5285,7 @@ n
         if 'preferredKernel' in image:
             extra['preferredKernel'] = image.get('preferredKernel', None)
         extra['description'] = image.get('description', None)
+        extra['family'] = image.get('family', None)
         extra['creationTimestamp'] = image.get('creationTimestamp')
         extra['selfLink'] = image.get('selfLink')
         if 'deprecated' in image:
@@ -5660,24 +5752,6 @@ n
         return GCEZone(id=zone['id'], name=zone['name'], status=zone['status'],
                        maintenance_windows=zone.get('maintenanceWindows'),
                        deprecated=deprecated, driver=self, extra=extra)
-
-    def _to_license(self, license):
-        """
-        Return a License object from the JSON-response dictionary.
-
-        :param  license: The dictionary describing the license.
-        :type   license: ``dict``
-
-        :return: License object
-        :rtype: :class:`GCELicense`
-        """
-        extra = {}
-        extra['selfLink'] = license.get('selfLink')
-        extra['kind'] = license.get('kind')
-
-        return GCELicense(id=license['name'], name=license['name'],
-                          charges_use_fee=license['chargesUseFee'],
-                          driver=self, extra=extra)
 
     def _set_project_metadata(self, metadata=None, force=False,
                               current_keys=""):

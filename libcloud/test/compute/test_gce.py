@@ -29,29 +29,25 @@ from libcloud.compute.drivers.gce import (GCENodeDriver, API_VERSION,
                                           GCETargetHttpProxy, GCEUrlMap,
                                           GCEZone)
 from libcloud.common.google import (GoogleBaseAuthConnection,
-                                    GoogleInstalledAppAuthConnection,
-                                    GoogleBaseConnection,
-                                    ResourceNotFoundError, ResourceExistsError)
-from libcloud.test.common.test_google import GoogleAuthMockHttp
+                                    ResourceNotFoundError, ResourceExistsError,
+                                    InvalidRequestError, GoogleBaseError)
+from libcloud.test.common.test_google import GoogleAuthMockHttp, GoogleTestCase
 from libcloud.compute.base import Node, StorageVolume
 
-from libcloud.test import MockHttpTestCase, LibcloudTestCase
+from libcloud.test import MockHttpTestCase
 from libcloud.test.compute import TestCaseMixin
 from libcloud.test.file_fixtures import ComputeFileFixtures
 
 from libcloud.test.secrets import GCE_PARAMS, GCE_KEYWORD_PARAMS
 
 
-class GCENodeDriverTest(LibcloudTestCase, TestCaseMixin):
+class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
 
     """
     Google Compute Engine Test Class.
     """
     # Mock out a few specific calls that interact with the user, system or
     # environment.
-    GoogleBaseConnection._get_token_info_from_file = lambda x: None
-    GoogleBaseConnection._write_token_info_to_file = lambda x: None
-    GoogleInstalledAppAuthConnection.get_code = lambda x: '1234'
     GCEZone._now = lambda x: datetime.datetime(2013, 6, 26, 19, 0, 0)
     datacenter = 'us-central1-a'
 
@@ -394,6 +390,7 @@ class GCENodeDriverTest(LibcloudTestCase, TestCaseMixin):
         self.assertTrue(isinstance(image, GCENodeImage))
         self.assertTrue(image.name.startswith('coreos'))
         self.assertEqual(image.extra['description'], 'CoreOS beta 522.3.0')
+        self.assertEqual(image.extra['family'], 'coreos')
 
     def test_ex_create_firewall(self):
         firewall_name = 'lcfirewall'
@@ -481,6 +478,28 @@ class GCENodeDriverTest(LibcloudTestCase, TestCaseMixin):
         self.assertTrue(isinstance(network, GCENetwork))
         self.assertEqual(network.name, network_name)
         self.assertEqual(network.cidr, cidr)
+
+    def test_ex_set_machine_type_notstopped(self):
+        # get running node, change machine type
+        zone = 'us-central1-a'
+        node = self.driver.ex_get_node('node-name', zone)
+        self.assertRaises(GoogleBaseError, self.driver.ex_set_machine_type,
+                          node, 'custom-4-61440')
+
+    def test_ex_set_machine_type_invalid(self):
+        # get stopped node, change machine type
+        zone = 'us-central1-a'
+        node = self.driver.ex_get_node('custom-node', zone)
+        self.assertRaises(InvalidRequestError, self.driver.ex_set_machine_type,
+                          node, 'custom-1-61440')
+
+    def test_ex_set_machine_type(self):
+        # get stopped node, change machine type
+        zone = 'us-central1-a'
+        node = self.driver.ex_get_node('stopped-node', zone)
+        self.assertEqual(node.size, 'n1-standard-1')
+        self.assertEqual(node.extra['status'], 'TERMINATED')
+        self.assertTrue(self.driver.ex_set_machine_type(node, 'custom-4-11264'))
 
     def test_ex_node_start(self):
         zone = 'us-central1-a'
@@ -1143,13 +1162,21 @@ class GCENodeDriverTest(LibcloudTestCase, TestCaseMixin):
         image = self.driver.ex_get_image(partial_name, ['debian-cloud'])
         self.assertEqual(image.name, 'debian-7-wheezy-v20131120')
 
+        partial_name = 'debian-7'
+        self.assertRaises(ResourceNotFoundError, self.driver.ex_get_image,
+                          partial_name, 'suse-cloud',
+                          ex_standard_projects=False)
+
     def test_ex_copy_image(self):
         name = 'coreos'
         url = 'gs://storage.core-os.net/coreos/amd64-generic/247.0.0/coreos_production_gce.tar.gz'
         description = 'CoreOS beta 522.3.0'
-        image = self.driver.ex_copy_image(name, url, description)
+        family = 'coreos'
+        image = self.driver.ex_copy_image(name, url, description=description,
+                                          family=family)
         self.assertTrue(image.name.startswith(name))
         self.assertEqual(image.extra['description'], description)
+        self.assertEqual(image.extra['family'], family)
 
     def test_ex_get_route(self):
         route_name = 'lcdemoroute'
@@ -1408,6 +1435,44 @@ class GCEMockHttp(MockHttpTestCase):
     def _setUsageExportBucket(self, method, url, body, headers):
         if method == 'POST':
             body = self.fixtures.load('setUsageExportBucket_post.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _zones_us_central1_a_instances_custom_node(self, method, url, body, header):
+        body = self.fixtures.load('zones_us_central1_a_instances_custom_node.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _zones_us_central1_a_instances_node_name_setMachineType(self, method, url, body, header):
+        body = self.fixtures.load('zones_us_central1_a_instances_node_name_setMachineType.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _zones_us_central1_a_operations_operation_setMachineType_notstopped(self, method, url, body, header):
+        body = self.fixtures.load('zones_us_central1_a_operations_operation_setMachineType_notstopped.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _zones_us_central1_a_instances_custom_node_setMachineType(self, method, url, body, header):
+        body = {
+            "error": {
+                "errors": [
+                    {
+                        "domain": "global",
+                        "reason": "invalid",
+                        "message": "Invalid value for field 'resource.machineTypes': "
+                                   "'projects/project_name/zones/us-central1-a/machineTypes/custom-1-61440'.  Resource was not found.",
+                    }
+                ],
+                "code": 400,
+                "message": "Invalid value for field 'resource.machineTypes': "
+                           "'projects/project_name/zones/us-central1-a/machineTypes/custom-1-61440'.  Resource was not found."
+            }
+        }
+        return (httplib.BAD_REQUEST, body, self.json_hdr, httplib.responses[httplib.BAD_REQUEST])
+
+    def _zones_us_central1_a_instances_stopped_node_setMachineType(self, method, url, body, header):
+        body = self.fixtures.load('zones_us_central1_a_instances_stopped_node_setMachineType.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _zones_us_central1_a_operations_operation_setMachineType(self, method, url, body, header):
+        body = self.fixtures.load('zones_us_central1_a_operations_operation_setMachineType.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
     def _zones_us_central1_a_operations_operation_startnode(self, method, url, body, header):

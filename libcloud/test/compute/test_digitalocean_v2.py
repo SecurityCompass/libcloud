@@ -15,6 +15,9 @@
 import sys
 import unittest
 
+from datetime import datetime
+from libcloud.utils.iso8601 import UTC
+
 try:
     import simplejson as json
 except ImportError:
@@ -28,6 +31,7 @@ from libcloud.compute.drivers.digitalocean import DigitalOceanNodeDriver
 
 from libcloud.test import LibcloudTestCase, MockHttpTestCase
 from libcloud.test.file_fixtures import ComputeFileFixtures
+from libcloud.test.secrets import DIGITALOCEAN_v1_PARAMS
 from libcloud.test.secrets import DIGITALOCEAN_v2_PARAMS
 
 
@@ -39,6 +43,10 @@ class DigitalOcean_v2_Tests(LibcloudTestCase):
             (None, DigitalOceanMockHttp)
         DigitalOceanMockHttp.type = None
         self.driver = DigitalOceanNodeDriver(*DIGITALOCEAN_v2_PARAMS)
+
+    def test_v2_uses_v1_key(self):
+        self.assertRaises(InvalidCredsError, DigitalOceanNodeDriver,
+                          *DIGITALOCEAN_v1_PARAMS, api_version='v2')
 
     def test_authentication(self):
         DigitalOceanMockHttp.type = 'UNAUTHORIZED'
@@ -82,13 +90,18 @@ class DigitalOcean_v2_Tests(LibcloudTestCase):
         self.assertEqual(nodes[0].extra['image']['id'], 6918990)
         self.assertEqual(nodes[0].extra['size_slug'], '512mb')
 
+    def test_list_nodes_fills_created_datetime(self):
+        nodes = self.driver.list_nodes()
+        self.assertEqual(nodes[0].created_at, datetime(2014, 11, 14, 16, 29, 21, tzinfo=UTC))
+
     def test_create_node_invalid_size(self):
         image = NodeImage(id='invalid', name=None, driver=self.driver)
         size = self.driver.list_sizes()[0]
         location = self.driver.list_locations()[0]
 
         DigitalOceanMockHttp.type = 'INVALID_IMAGE'
-        expected_msg = r'You specified an invalid image for Droplet creation. \(code: 404\)'
+        expected_msg = \
+            r'You specified an invalid image for Droplet creation. \(code: (404|HTTPStatus.NOT_FOUND)\)'
         self.assertRaisesRegexp(Exception, expected_msg,
                                 self.driver.create_node,
                                 name='test', size=size, image=image,
@@ -216,7 +229,8 @@ class DigitalOceanMockHttp(MockHttpTestCase):
         body = self.fixtures.load('ex_rename_node.json')
         return (httplib.CREATED, body, {}, httplib.responses[httplib.CREATED])
 
-    def _v2_droplets_3164444_actions_SNAPSHOT(self, method, url, body, headers):
+    def _v2_droplets_3164444_actions_SNAPSHOT(self, method, url,
+                                              body, headers):
         # create_image
         body = self.fixtures.load('create_image.json')
         return (httplib.CREATED, body, {}, httplib.responses[httplib.CREATED])
@@ -236,7 +250,8 @@ class DigitalOceanMockHttp(MockHttpTestCase):
         body = self.fixtures.load('ex_power_on_node.json')
         return (httplib.CREATED, body, {}, httplib.responses[httplib.CREATED])
 
-    def _v2_droplets_3164444_actions_SHUTDOWN(self, method, url, body, headers):
+    def _v2_droplets_3164444_actions_SHUTDOWN(self, method, url,
+                                              body, headers):
         # ex_shutdown_node
         body = self.fixtures.load('ex_shutdown_node.json')
         return (httplib.CREATED, body, {}, httplib.responses[httplib.CREATED])

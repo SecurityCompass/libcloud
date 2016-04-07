@@ -190,12 +190,6 @@ class StorageDriver(BaseDriver):
     # provided and none can be detected when uploading an object
     strict_mode = False
 
-    def __init__(self, key, secret=None, secure=True, host=None, port=None,
-                 **kwargs):
-        super(StorageDriver, self).__init__(key=key, secret=secret,
-                                            secure=secure, host=host,
-                                            port=port, **kwargs)
-
     def iterate_containers(self):
         """
         Return a generator of containers for the given account
@@ -720,11 +714,11 @@ class StorageDriver(BaseDriver):
         :type iterator: :class:`object`
 
         :param chunked: True if the chunked transfer encoding should be used
-                        (defauls to False).
+                        (defaults to False).
         :type chunked: ``bool``
 
         :param calculate_hash: True to calculate hash of the transferred data.
-                               (defauls to True).
+                               (defaults to True).
         :type calculate_hash: ``bool``
 
         :param chunk_size: Optional chunk size (defaults to ``CHUNK_SIZE``)

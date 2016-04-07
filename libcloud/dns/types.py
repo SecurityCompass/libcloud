@@ -23,7 +23,9 @@ __all__ = [
     'ZoneAlreadyExistsError',
     'RecordError',
     'RecordDoesNotExistError',
-    'RecordAlreadyExistsError'
+    'RecordAlreadyExistsError',
+
+    'OLD_CONSTANT_TO_NEW_MAPPING'
 ]
 
 
@@ -37,10 +39,29 @@ class Provider(object):
     GANDI = 'gandi'
     GOOGLE = 'google'
     SOFTLAYER = 'softlayer'
-
+    DIGITAL_OCEAN = 'digitalocean'
+    AURORADNS = 'auroradns'
+    WORLDWIDEDNS = 'worldwidedns'
+    DNSIMPLE = 'dnsimple'
+    POINTDNS = 'pointdns'
+    VULTR = 'vultr'
+    LIQUIDWEB = 'liquidweb'
+    ZONOMI = 'zonomi'
+    DURABLEDNS = 'durabledns'
+    GODADDY = 'godaddy'
+    CLOUDFLARE = 'cloudflare'
+    NSONE = 'nsone'
+    LUADNS = 'luadns'
+    NFSN = 'nfsn'
     # Deprecated
     RACKSPACE_US = 'rackspace_us'
     RACKSPACE_UK = 'rackspace_uk'
+
+
+OLD_CONSTANT_TO_NEW_MAPPING = {
+    Provider.RACKSPACE_US: Provider.RACKSPACE,
+    Provider.RACKSPACE_UK: Provider.RACKSPACE,
+}
 
 
 class RecordType(object):
@@ -49,16 +70,19 @@ class RecordType(object):
     """
     A = 'A'
     AAAA = 'AAAA'
+    ALIAS = 'ALIAS'
     MX = 'MX'
     NS = 'NS'
     CNAME = 'CNAME'
     DNAME = 'DNAME'
+    HINFO = 'HINFO'
     TXT = 'TXT'
     PTR = 'PTR'
     SOA = 'SOA'
     SPF = 'SPF'
     SRV = 'SRV'
-    PTR = 'PTR'
+    SSHFP = 'SSHFP'
+    RP = 'RP'
     NAPTR = 'NAPTR'
     REDIRECT = 'REDIRECT'
     GEO = 'GEO'
