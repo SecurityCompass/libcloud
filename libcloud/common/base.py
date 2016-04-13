@@ -472,6 +472,7 @@ class LoggingHTTPSConnection(LoggingConnection, LibcloudHTTPSConnection):
         headers.update({'X-LC-Request-ID': str(id(self))})
         if self.log is not None:
             pre = "# -------- begin %d request ----------\n" % id(self)
+
             self.log.write(pre +
                            self._log_curl(method, url, body, headers) + "\n")
             self.log.flush()

@@ -72,216 +72,6 @@ WINDOWS_SERVER_REGEX = re.compile(
     r'Win|SQL|SharePoint|Visual|Dynamics|DynGP|BizTalk'
 )
 
-"""
-Sizes must be hardcoded because Microsoft doesn't provide an API to fetch them
-From http://msdn.microsoft.com/en-us/library/windowsazure/dn197896.aspx
-
-Prices are for Linux instances in East US data center. To see what pricing will
-actually be, visit:
-http://azure.microsoft.com/en-gb/pricing/details/virtual-machines/
-"""
-AZURE_COMPUTE_INSTANCE_TYPES = {
-    'A0': {
-        'id': 'ExtraSmall',
-        'name': 'Extra Small Instance',
-        'ram': 768,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.0211',
-        'max_data_disks': 1,
-        'cores': 'Shared'
-    },
-    'A1': {
-        'id': 'Small',
-        'name': 'Small Instance',
-        'ram': 1792,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.0633',
-        'max_data_disks': 2,
-        'cores': 1
-    },
-    'A2': {
-        'id': 'Medium',
-        'name': 'Medium Instance',
-        'ram': 3584,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.1266',
-        'max_data_disks': 4,
-        'cores': 2
-    },
-    'A3': {
-        'id': 'Large',
-        'name': 'Large Instance',
-        'ram': 7168,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.2531',
-        'max_data_disks': 8,
-        'cores': 4
-    },
-    'A4': {
-        'id': 'ExtraLarge',
-        'name': 'Extra Large Instance',
-        'ram': 14336,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.5062',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'A5': {
-        'id': 'A5',
-        'name': 'Memory Intensive Instance',
-        'ram': 14336,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.2637',
-        'max_data_disks': 4,
-        'cores': 2
-    },
-    'A6': {
-        'id': 'A6',
-        'name': 'A6 Instance',
-        'ram': 28672,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.5273',
-        'max_data_disks': 8,
-        'cores': 4
-    },
-    'A7': {
-        'id': 'A7',
-        'name': 'A7 Instance',
-        'ram': 57344,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '1.0545',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'A8': {
-        'id': 'A8',
-        'name': 'A8 Instance',
-        'ram': 57344,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '2.0774',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'A9': {
-        'id': 'A9',
-        'name': 'A9 Instance',
-        'ram': 114688,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '4.7137',
-        'max_data_disks': 16,
-        'cores': 16
-    },
-    'A10': {
-        'id': 'A10',
-        'name': 'A10 Instance',
-        'ram': 57344,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '1.2233',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'A11': {
-        'id': 'A11',
-        'name': 'A11 Instance',
-        'ram': 114688,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '2.1934',
-        'max_data_disks': 16,
-        'cores': 16
-    },
-    'D1': {
-        'id': 'Standard_D1',
-        'name': 'D1 Faster Compute Instance',
-        'ram': 3584,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.0992',
-        'max_data_disks': 2,
-        'cores': 1
-    },
-    'D2': {
-        'id': 'Standard_D2',
-        'name': 'D2 Faster Compute Instance',
-        'ram': 7168,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.1983',
-        'max_data_disks': 4,
-        'cores': 2
-    },
-    'D3': {
-        'id': 'Standard_D3',
-        'name': 'D3 Faster Compute Instance',
-        'ram': 14336,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.3965',
-        'max_data_disks': 8,
-        'cores': 4
-    },
-    'D4': {
-        'id': 'Standard_D4',
-        'name': 'D4 Faster Compute Instance',
-        'ram': 28672,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.793',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'D11': {
-        'id': 'Standard_D11',
-        'name': 'D11 Faster Compute Instance',
-        'ram': 14336,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.251',
-        'max_data_disks': 4,
-        'cores': 2
-    },
-    'D12': {
-        'id': 'Standard_D12',
-        'name': 'D12 Faster Compute Instance',
-        'ram': 28672,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.502',
-        'max_data_disks': 8,
-        'cores': 4
-    },
-    'D13': {
-        'id': 'Standard_D13',
-        'name': 'D13 Faster Compute Instance',
-        'ram': 57344,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '0.9038',
-        'max_data_disks': 16,
-        'cores': 8
-    },
-    'D14': {
-        'id': 'Standard_D14',
-        'name': 'D14 Faster Compute Instance',
-        'ram': 114688,
-        'disk': 127,
-        'bandwidth': None,
-        'price': '1.6261',
-        'max_data_disks': 32,
-        'cores': 16
-    }
-}
 
 _KNOWN_SERIALIZATION_XFORMS = {
     'include_apis': 'IncludeAPIs',
@@ -301,7 +91,13 @@ _KNOWN_SERIALIZATION_XFORMS = {
     'persistent_vm_downtime_info': 'PersistentVMDowntimeInfo',
     'copy_id': 'CopyId',
     'os_disk_configuration': 'OSDiskConfiguration',
-    'is_dns_programmed': 'IsDnsProgrammed'
+    'is_dns_programmed': 'IsDnsProgrammed',
+    'maxdatadiskcount': 'MaxDataDiskCount',
+    'memoryinmb': 'MemoryInMb',
+    'supportedbyvirtualmachines': 'SupportedByVirtualMachines',
+    'supportedbywebworkerroles': 'SupportedByWebWorkerRoles',
+    'virtualmachineresourcedisksizeinmb': 'VirtualMachineResourceDiskSizeInMb',
+    'webworkerresourcedisksizeinmb': 'WebWorkerResourceDiskSizeInMb'
 }
 
 
@@ -311,7 +107,6 @@ class AzureNodeDriver(NodeDriver):
     website = 'http://azure.microsoft.com/en-us/services/virtual-machines/'
     type = Provider.AZURE
 
-    _instance_types = AZURE_COMPUTE_INSTANCE_TYPES
     _blob_url = ".blob.core.windows.net"
     features = {'create_node': ['password']}
     service_location = collections.namedtuple(
@@ -361,11 +156,9 @@ class AzureNodeDriver(NodeDriver):
 
         :rtype: ``list`` of :class:`NodeSize`
         """
-        sizes = []
 
-        for _, values in self._instance_types.items():
-            node_size = self._to_node_size(copy.deepcopy(values))
-            sizes.append(node_size)
+        rolesizes = self._perform_get(self._get_rolesize_path(), RoleSizes)
+        sizes = [self._to_node_size(rolesize) for rolesize in rolesizes]
 
         return sizes
 
@@ -1235,17 +1028,21 @@ class AzureNodeDriver(NodeDriver):
         """
         Convert the AZURE_COMPUTE_INSTANCE_TYPES into NodeSize
         """
+
         return NodeSize(
-            id=data["id"],
-            name=data["name"],
-            ram=data["ram"],
-            disk=data["disk"],
-            bandwidth=data["bandwidth"],
-            price=data["price"],
+            id=data.name,
+            name=data.label,
+            ram=data.memoryinmb,
+            disk=data.virtualmachineresourcedisksizeinmb,
+            bandwidth=None,
+            price=None,
             driver=self.connection.driver,
             extra={
-                'max_data_disks': data["max_data_disks"],
-                'cores': data["cores"]
+                'max_data_disks': data.maxdatadiskcount,
+                'cores': data.cores,
+                'supported_by_web_worker_roles': data.supportedbywebworkerroles,
+                'supported_by_virtual_machines': data.supportedbyvirtualmachines,
+                'web_worker_resource_disk_size_in_mb': data.webworkerresourcedisksizeinmb,
             }
         )
 
@@ -1880,6 +1677,9 @@ class AzureNodeDriver(NodeDriver):
         if name is not None:
             path += '/' + _str(name)
         return path
+
+    def _get_rolesize_path(self):
+        return self._get_path('rolesizes', None)
 
     def _get_image_path(self, image_name=None):
         return self._get_path('services/images', image_name)
@@ -3125,6 +2925,28 @@ class VirtualMachinesRoleSizes(WindowsAzureData):
 
     def __init__(self):
         self.role_size = ScalarListOf(str, 'RoleSize')
+
+
+class RoleSize(WindowsAzureData):
+
+    def __init__(self):
+        self.name = ''
+        self.label = ''
+        self.cores = ''
+        self.memoryinmb = ''
+        self.supportedbywebworkerroles = False
+        self.supportedbyvirtualmachines = False
+        self.maxdatadiskcount = ''
+        self.webworkerresourcedisksizeinmb = ''
+        self.virtualmachineresourcedisksizeinmb = ''
+
+
+class RoleSizes(WindowsAzureDataTypedList):
+    list_type = RoleSize
+
+    _repr_attributes = [
+        'items'
+    ]
 
 
 class OSImage(WindowsAzureData):

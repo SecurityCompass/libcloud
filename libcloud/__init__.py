@@ -68,7 +68,7 @@ def _init_once():
         if path in ['/dev/stderr', '/dev/stdout'] and PY3:
             mode = 'w'
 
-        fo = codecs.open(path, mode, encoding='utf8')
+        fo = codecs.open(path, mode, encoding='utf-8')
         enable_debug(fo)
 
         if have_paramiko:
