@@ -275,7 +275,13 @@ class LibcloudHTTPSConnection(httplib.HTTPSConnection, LibcloudBaseConnection):
         httplib.HTTPSConnection's connect
         """
         if not self.verify:
-            return httplib.HTTPSConnection.connect(self)
+            original_context = self._context
+            self._context = ssl._create_stdlib_context()
+            if self.key_file or self.cert_file:
+                self._context.load_cert_chain(self.cert_file, self.key_file)
+            connect_result = httplib.HTTPSConnection.connect(self)
+            self._context = original_context
+            return connect_result
 
         # otherwise, create a connection and verify the hostname
         # use socket.create_connection (in 2.6+) if possible
