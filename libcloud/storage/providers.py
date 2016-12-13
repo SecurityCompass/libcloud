@@ -31,10 +31,14 @@ DRIVERS = {
     ('libcloud.storage.drivers.s3', 'S3USWestStorageDriver'),
     Provider.S3_US_WEST_OREGON:
     ('libcloud.storage.drivers.s3', 'S3USWestOregonStorageDriver'),
+    Provider.S3_CN_NORTH:
+    ('libcloud.storage.drivers.s3', 'S3CNNorthStorageDriver'),
     Provider.S3_EU_WEST:
     ('libcloud.storage.drivers.s3', 'S3EUWestStorageDriver'),
     Provider.S3_AP_SOUTHEAST:
     ('libcloud.storage.drivers.s3', 'S3APSEStorageDriver'),
+    Provider.S3_AP_SOUTHEAST2:
+    ('libcloud.storage.drivers.s3', 'S3APSE2StorageDriver'),
     Provider.S3_AP_NORTHEAST:
     ('libcloud.storage.drivers.s3', 'S3APNE1StorageDriver'),
     Provider.S3_AP_NORTHEAST1:
@@ -43,8 +47,10 @@ DRIVERS = {
     ('libcloud.storage.drivers.s3', 'S3APNE2StorageDriver'),
     Provider.S3_SA_EAST:
     ('libcloud.storage.drivers.s3', 'S3SAEastStorageDriver'),
+    Provider.S3_RGW:
+    ('libcloud.storage.drivers.rgw', 'S3RGWStorageDriver'),
     Provider.S3_RGW_OUTSCALE:
-    ('libcloud.storage.drivers.s3', 'S3RGWOutscaleStorageDriver'),
+    ('libcloud.storage.drivers.rgw', 'S3RGWOutscaleStorageDriver'),
     Provider.NINEFOLD:
     ('libcloud.storage.drivers.ninefold', 'NinefoldStorageDriver'),
     Provider.GOOGLE_STORAGE:

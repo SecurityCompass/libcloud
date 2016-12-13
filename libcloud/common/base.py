@@ -118,6 +118,7 @@ class HTTPResponse(httplib.HTTPResponse):
     # In particular this happens on S3 when calls are made to get_object to
     # objects that don't exist.
     # This applies the behaviour from 2.7, fixing the hangs.
+
     def read(self, amt=None):
         if self.fp is None:
             return ''
@@ -212,7 +213,7 @@ class Response(object):
         :rtype: ``bool``
         :return: ``True`` or ``False``
         """
-        return self.status in [httplib.OK, httplib.CREATED]
+        return self.status in [httplib.OK, httplib.CREATED, httplib.ACCEPTED]
 
     def _decompress_response(self, body, headers):
         """
@@ -270,7 +271,11 @@ class XmlResponse(Response):
             return self.body
 
         try:
-            body = ET.XML(self.body)
+            try:
+                body = ET.XML(self.body)
+            except ValueError:
+                # lxml wants a bytes and tests are basically hard-coded to str
+                body = ET.XML(self.body.encode('utf-8'))
         except:
             raise MalformedResponseError('Failed to parse XML',
                                          body=self.body,
@@ -350,6 +355,7 @@ class LoggingConnection():
 
         # this is evil. laugh with me. ha arharhrhahahaha
         class fakesock(object):
+
             def __init__(self, s):
                 self.s = s
 
@@ -413,6 +419,8 @@ class LoggingConnection():
         return (rr, rv)
 
     def _log_curl(self, method, url, body, headers):
+        # pylint: disable=no-member
+
         cmd = ["curl"]
 
         if self.http_proxy_used:
@@ -472,7 +480,6 @@ class LoggingHTTPSConnection(LoggingConnection, LibcloudHTTPSConnection):
         headers.update({'X-LC-Request-ID': str(id(self))})
         if self.log is not None:
             pre = "# -------- begin %d request ----------\n" % id(self)
-
             self.log.write(pre +
                            self._log_curl(method, url, body, headers) + "\n")
             self.log.flush()
@@ -527,6 +534,8 @@ class Connection(object):
     retry_delay = None
 
     allow_insecure = True
+    skip_host = True
+    skip_accept_encoding = True
 
     def __init__(self, secure=True, host=None, port=None, url=None,
                  timeout=None, proxy_url=None, retry_delay=None, backoff=None):
@@ -625,6 +634,8 @@ class Connection(object):
         # prefer the attribute base_url if its set or sent
         connection = None
         secure = self.secure
+
+        # pylint: disable=no-member
 
         if getattr(self, 'base_url', None) and base_url is None:
             (host, port,
@@ -771,6 +782,9 @@ class Connection(object):
         else:
             headers.update({'Host': self.host})
 
+        skip_host = self.skip_host
+        skip_accept_encoding = self.skip_accept_encoding
+
         if data:
             data = self.encode_data(data)
             headers['Content-Length'] = str(len(data))
@@ -800,9 +814,11 @@ class Connection(object):
             # @TODO: Should we just pass File object as body to request method
             # instead of dealing with splitting and sending the file ourselves?
             if raw:
-                self.connection.putrequest(method, url,
-                                           skip_host=1,
-                                           skip_accept_encoding=1)
+                self.connection.putrequest(
+                    method,
+                    url,
+                    skip_host=skip_host,
+                    skip_accept_encoding=skip_accept_encoding)
 
                 for key, value in list(headers.items()):
                     self.connection.putheader(key, str(value))
@@ -860,6 +876,8 @@ class Connection(object):
         return response
 
     def morph_action_hook(self, action):
+        if not action.startswith("/"):
+            action = "/" + action
         return self.request_path + action
 
     def add_default_params(self, params):
@@ -1043,6 +1061,7 @@ class ConnectionKey(Connection):
     """
     Base connection class which accepts a single ``key`` argument.
     """
+
     def __init__(self, key, secure=True, host=None, port=None, url=None,
                  timeout=None, proxy_url=None, backoff=None, retry_delay=None):
         """
@@ -1062,6 +1081,7 @@ class CertificateConnection(Connection):
     """
     Base connection class which accepts a single ``cert_file`` argument.
     """
+
     def __init__(self, cert_file, secure=True, host=None, port=None, url=None,
                  proxy_url=None, timeout=None, backoff=None, retry_delay=None):
         """
@@ -1154,10 +1174,19 @@ class BaseDriver(object):
         self.region = region
 
         conn_kwargs = self._ex_connection_class_kwargs()
-        conn_kwargs.update({'timeout': kwargs.pop('timeout', None),
-                            'retry_delay': kwargs.pop('retry_delay', None),
-                            'backoff': kwargs.pop('backoff', None),
-                            'proxy_url': kwargs.pop('proxy_url', None)})
+
+        # Note: We do that to make sure those additional arguments which are
+        # provided via "_ex_connection_class_kwargs" are not overriden with
+        # None
+        additional_kwargs = ['timeout', 'retry_delay', 'backoff', 'proxy_url']
+        for kwarg_name in additional_kwargs:
+            value = kwargs.pop(kwarg_name, None)
+
+            # Constructor argument has precedence over
+            # _ex_connection_class_kwargs kwarg
+            if value is not None or kwarg_name not in conn_kwargs:
+                conn_kwargs[kwarg_name] = value
+
         self.connection = self.connectionCls(*args, **conn_kwargs)
 
         self.connection.driver = self
