@@ -1363,7 +1363,7 @@ class AzureNodeDriver(NodeDriver):
         """
         parse the xml and fill all the data into a class of return_type
         """
-        respbody = response.body
+        respbody = response.body.encode('utf-8')
 
         doc = minidom.parseString(respbody)
         return_obj = return_type()
