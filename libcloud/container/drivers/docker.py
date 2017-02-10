@@ -245,26 +245,27 @@ class DockerContainerDriver(ContainerDriver):
 
         :rtype: ``list`` of :class:`libcloud.container.base.ContainerImage`
         """
-        result = self.connection.request('/v%s/images/json' %
+        results = self.connection.request('/v%s/images/json' %
                                          (self.version)).object
         images = []
-        for image in result:
-            try:
-                name = image.get('RepoTags')[0]
-            except:
-                name = image.get('Id')
-            images.append(ContainerImage(
-                id=image.get('Id'),
-                name=name,
-                path=name,
-                version=None,
-                driver=self.connection.driver,
-                extra={
-                    "created": image.get('Created'),
-                    "size": image.get('Size'),
-                    "virtual_size": image.get('VirtualSize'),
-                },
-            ))
+	for result in results:
+            for image in result:
+                try:
+                    name = image.get('RepoTags')[0]
+                except:
+                    name = image.get('Id')
+                images.append(ContainerImage(
+                    id=image.get('Id'),
+                    name=name,
+                    path=name,
+                    version=None,
+                    driver=self.connection.driver,
+                    extra={
+                        "created": image.get('Created'),
+                        "size": image.get('Size'),
+                        "virtual_size": image.get('VirtualSize'),
+                    },
+                ))
 
         return images
 
@@ -285,7 +286,7 @@ class DockerContainerDriver(ContainerDriver):
         else:
             ex = ''
         try:
-            result = self.connection.request(
+            results = self.connection.request(
                 "/v%s/containers/json%s" % (self.version, ex)).object
         except Exception as exc:
             errno = getattr(exc, 'errno', None)
@@ -296,7 +297,7 @@ class DockerContainerDriver(ContainerDriver):
                     'and the API port is correct')
             raise
 
-        containers = [self._to_container(value) for value in result]
+        containers = [self._to_container(value) for result in results for value in result]
         return containers
 
     def deploy_container(self, name, image, parameters=None, start=True,
