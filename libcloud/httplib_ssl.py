@@ -164,6 +164,7 @@ class LibcloudConnection(LibcloudBaseConnection):
         if proxy_url:
             self.set_http_proxy(proxy_url=proxy_url)
         self.session.timeout = kwargs.get('timeout', 60)
+        self.cert_file = kwargs.get('cert_file', None)
 
     @property
     def verification(self):
@@ -175,6 +176,8 @@ class LibcloudConnection(LibcloudBaseConnection):
     def request(self, method, url, body=None, headers=None, raw=False,
                 stream=False):
         url = urlparse.urljoin(self.host, url)
+
+        cert = getattr(self, "cert_file", None)
         self.response = self.session.request(
             method=method.lower(),
             url=url,
@@ -182,7 +185,8 @@ class LibcloudConnection(LibcloudBaseConnection):
             headers=headers,
             allow_redirects=ALLOW_REDIRECTS,
             stream=stream,
-            verify=self.verification
+            verify=self.verification,
+            cert=cert
         )
 
     def prepared_request(self, method, url, body=None,
