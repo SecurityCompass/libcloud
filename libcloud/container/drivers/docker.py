@@ -137,7 +137,7 @@ class DockerContainerDriver(ContainerDriver):
     version = '1.24'
 
     def __init__(self, key=None, secret=None, secure=False, host='localhost',
-                 port=4243, key_file=None, cert_file=None):
+                 port=4243, key_file=None, cert_file=None, user_id=None):
         """
         :param    key: API key or username to used (required)
         :type     key: ``str``
@@ -167,7 +167,8 @@ class DockerContainerDriver(ContainerDriver):
                                                     secure=secure, host=host,
                                                     port=port,
                                                     key_file=key_file,
-                                                    cert_file=cert_file)
+                                                    cert_file=cert_file,
+                                                    user_id=user_id)
         if host.startswith('https://'):
             secure = True
 

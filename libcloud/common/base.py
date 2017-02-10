@@ -956,7 +956,11 @@ class BaseDriver(object):
         self.key = key
         self.secret = secret
         self.secure = secure
-        args = [self.key]
+
+        if 'user_id' in kwargs:
+            args = [kwargs['user_id'], self.key]
+        else:
+            args = [self.key]
 
         if self.secret is not None:
             args.append(self.secret)
