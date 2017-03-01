@@ -249,7 +249,7 @@ class DockerContainerDriver(ContainerDriver):
         results = self.connection.request('/v%s/images/json' %
                                          (self.version)).object
         images = []
-	for result in results:
+        for result in results:
             for image in result:
                 try:
                     name = image.get('RepoTags')[0]
@@ -633,6 +633,8 @@ class DockerContainerDriver(ContainerDriver):
             state = ContainerState.RUNNING
         else:
             state = ContainerState.STOPPED
+
+        network_settings = data.get('NetworkSettings', {})
         image = data.get('Image')
         ports = data.get('Ports', [])
         created = data.get('Created')
@@ -649,10 +651,20 @@ class DockerContainerDriver(ContainerDriver):
             'sizerootfs': data.get('SizeRootFs'),
         }
         ips = []
+        try:
+            for _, settings in network_settings['Networks'].iteritems():
+                try:
+                    ips.append(settings['IPAddress'])
+                except KeyError:
+                    pass
+        except KeyError:
+            pass
+
         if ports is not None:
             for port in ports:
                 if port.get('IP') is not None:
                     ips.append(port.get('IP'))
+
         return Container(
             id=data['Id'],
             name=name,
